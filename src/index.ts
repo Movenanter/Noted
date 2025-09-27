@@ -12,6 +12,34 @@ interface PhotoData {
   timestamp: Date
 }
 
+interface VoiceSegment {
+  id: string
+  timestamp: Date
+  transcription: string
+  duration: number
+  isBookmarked: boolean
+}
+
+interface Bookmark {
+  id: string
+  timestamp: Date
+  type: 'voice' | 'photo' | 'moment'
+  segmentId?: string
+  photoId?: string
+  description?: string
+}
+
+interface SessionData {
+  id: string
+  type: 'lecture' | 'meeting' | 'interview' | 'conversation'
+  startTime: Date
+  endTime?: Date
+  segments: VoiceSegment[]
+  photos: PhotoData[]
+  bookmarks: Bookmark[]
+  isActive: boolean
+}
+
 // Configuration
 const PACKAGE_NAME = process.env.PACKAGE_NAME
 const PORT = parseInt(process.env.PORT || "3000")
@@ -35,6 +63,14 @@ class NotedApp extends AppServer {
   private notes: string[] = []
   private connectedSessions = new Set<string>()
   private lastProcessedCommand = ""
+  
+  // Session management
+  private currentSession: SessionData | null = null
+  private sessionSegments: VoiceSegment[] = []
+  private sessionPhotos: PhotoData[] = []
+  private bookmarkedMoments: Bookmark[] = []
+  private isSessionActive = false
+  private segmentStartTime: Date | null = null
   protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
     session.logger.info(`New session: ${sessionId} for user ${userId}`)
 
@@ -83,15 +119,22 @@ class NotedApp extends AppServer {
         }
       }
       
-      if (this.isListening) {
-        if (this.checkStopWords(transcription.text)) {
-          this.stopListening(session)
-          return
-        }
-        
-        this.currentTranscription += transcription.text + " "
-        this.processVoiceCommand(session, transcription.text)
-      }
+          if (this.isListening) {
+            if (this.checkStopWords(transcription.text)) {
+              this.stopListening(session)
+              return
+            }
+            
+            this.currentTranscription += transcription.text + " "
+            this.processVoiceCommand(session, transcription.text)
+            
+            // Create voice segment if session is active and text is meaningful
+            if (this.currentSession?.isActive && this.isMeaningfulText(transcription.text)) {
+              this.createVoiceSegment(session, transcription.text).catch(error => 
+                session.logger.error(`Failed to create voice segment: ${String(error)}`)
+              )
+            }
+          }
     })
 
     session.events.onButtonPress((button) => {
@@ -142,10 +185,22 @@ class NotedApp extends AppServer {
       this.lastProcessedCommand = lowerText
       this.handleSummarize(session, this.currentTranscription)
     }
-    else if (lowerText.includes("analyze photo") || lowerText.includes("describe photo")) {
-      this.lastProcessedCommand = lowerText
-      this.handleAnalyzePhotoPlaceholder(session)
-    }
+        else if (lowerText.includes("analyze photo") || lowerText.includes("describe photo")) {
+          this.lastProcessedCommand = lowerText
+          this.handleAnalyzePhotoPlaceholder(session)
+        }
+        else if (lowerText.includes("mark this") || lowerText.includes("bookmark")) {
+          this.lastProcessedCommand = lowerText
+          this.handleMarkMoment(session)
+        }
+        else if (lowerText.includes("start session") || lowerText.includes("start lecture") || lowerText.includes("start meeting")) {
+          this.lastProcessedCommand = lowerText
+          this.handleStartSession(session, lowerText)
+        }
+        else if (lowerText.includes("end session") || lowerText.includes("stop session")) {
+          this.lastProcessedCommand = lowerText
+          this.handleEndSession(session)
+        }
   }
 
   private async handleTakePhoto(session: AppSession): Promise<void> {
@@ -160,6 +215,13 @@ class NotedApp extends AppServer {
       // Confirm completion immediately
       await session.audio.speak("Photo captured!")
       
+      // Add photo to current session if active
+      if (this.currentSession?.isActive) {
+        this.currentSession.photos.push(photo)
+        this.sessionPhotos.push(photo)
+        session.logger.info(`Photo added to session: ${this.currentSession.id}`)
+      }
+
       // Save file in background - user doesn't wait for this
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
       const filename = `photo_${timestamp}.jpg`
@@ -221,10 +283,13 @@ class NotedApp extends AppServer {
     
     try {
       await session.audio.speak("Stopped listening. Say 'hey noted' to start again.")
-      session.logger.info(`Stopped listening mode. Final transcription: ${this.currentTranscription}`)
       
-      if (this.currentTranscription.trim()) {
-        this.handleTakeNote(session, this.currentTranscription.trim())
+      // Clean the transcription with GPT before using it
+      const cleanTranscription = await this.cleanTranscriptionText(this.currentTranscription)
+      session.logger.info(`Stopped listening mode. Clean transcription: ${cleanTranscription}`)
+      
+      if (cleanTranscription.trim() && cleanTranscription.length > 10) {
+        this.handleTakeNote(session, cleanTranscription.trim())
       }
       
       this.currentTranscription = ""
@@ -331,11 +396,198 @@ class NotedApp extends AppServer {
     // TODO: Implement quiz functionality
   }
 
+  private async handleStartSession(session: AppSession, command: string): Promise<void> {
+    try {
+      if (this.currentSession?.isActive) {
+        await session.audio.speak("A session is already active. Say 'end session' to stop it first.")
+        return
+      }
+
+      // Determine session type from command
+      let sessionType: 'lecture' | 'meeting' | 'interview' | 'conversation' = 'conversation'
+      if (command.includes('lecture')) sessionType = 'lecture'
+      else if (command.includes('meeting')) sessionType = 'meeting'
+      else if (command.includes('interview')) sessionType = 'interview'
+
+      // Create new session
+      this.currentSession = {
+        id: `session_${Date.now()}`,
+        type: sessionType,
+        startTime: new Date(),
+        segments: [],
+        photos: [],
+        bookmarks: [],
+        isActive: true
+      }
+
+      this.isSessionActive = true
+      this.sessionSegments = []
+      this.sessionPhotos = []
+      this.bookmarkedMoments = []
+
+      session.logger.info(`Started ${sessionType} session: ${this.currentSession.id}`)
+      await session.audio.speak(`${sessionType} session started. I'll capture everything automatically. Say 'mark this' to bookmark important moments.`)
+      
+    } catch (error) {
+      session.logger.error(`Failed to start session: ${String(error)}`)
+      await session.audio.speak("Failed to start session.")
+    }
+  }
+
+  private async handleEndSession(session: AppSession): Promise<void> {
+    try {
+      if (!this.currentSession?.isActive) {
+        await session.audio.speak("No active session to end.")
+        return
+      }
+
+      // End the session
+      this.currentSession.endTime = new Date()
+      this.currentSession.isActive = false
+      this.isSessionActive = false
+
+      const duration = Math.round((this.currentSession.endTime.getTime() - this.currentSession.startTime.getTime()) / 1000 / 60)
+      const segmentCount = this.currentSession.segments.length
+      const photoCount = this.currentSession.photos.length
+      const bookmarkCount = this.currentSession.bookmarks.length
+
+      session.logger.info(`Ended session: ${this.currentSession.id}, Duration: ${duration}min, Segments: ${segmentCount}, Photos: ${photoCount}, Bookmarks: ${bookmarkCount}`)
+      
+      await session.audio.speak(`Session ended. Captured ${segmentCount} voice segments, ${photoCount} photos, and ${bookmarkCount} bookmarks over ${duration} minutes.`)
+      
+      // TODO: Send session data to backend when ready
+      // await this.sendSessionToBackend(this.currentSession)
+      
+      this.currentSession = null
+      
+    } catch (error) {
+      session.logger.error(`Failed to end session: ${String(error)}`)
+      await session.audio.speak("Failed to end session.")
+    }
+  }
+
+  private async handleMarkMoment(session: AppSession): Promise<void> {
+    try {
+      if (!this.currentSession?.isActive) {
+        await session.audio.speak("No active session. Start a session first.")
+        return
+      }
+
+      const bookmark: Bookmark = {
+        id: `bookmark_${Date.now()}`,
+        timestamp: new Date(),
+        type: 'moment',
+        description: 'User marked moment'
+      }
+
+      this.currentSession.bookmarks.push(bookmark)
+      this.bookmarkedMoments.push(bookmark)
+
+      session.logger.info(`Bookmarked moment: ${bookmark.id} at ${bookmark.timestamp}`)
+      await session.audio.speak("Moment bookmarked!")
+      
+    } catch (error) {
+      session.logger.error(`Failed to bookmark moment: ${String(error)}`)
+      await session.audio.speak("Failed to bookmark moment.")
+    }
+  }
+
+  private async createVoiceSegment(session: AppSession, text: string): Promise<void> {
+    try {
+      if (!this.currentSession?.isActive) return
+
+      // Clean and polish the text with GPT
+      const cleanText = await this.cleanTranscriptionText(text)
+      
+      // Only create segment if we have meaningful content
+      if (cleanText.length < 3) return
+
+      // Start timing if this is the first segment or a new segment
+      if (!this.segmentStartTime) {
+        this.segmentStartTime = new Date()
+      }
+
+      // Create voice segment with clean text
+      const segment: VoiceSegment = {
+        id: `segment_${Date.now()}`,
+        timestamp: new Date(),
+        transcription: cleanText,
+        duration: this.segmentStartTime ? (new Date().getTime() - this.segmentStartTime.getTime()) / 1000 : 0,
+        isBookmarked: false
+      }
+
+      this.currentSession.segments.push(segment)
+      this.sessionSegments.push(segment)
+
+      session.logger.info(`Voice segment created: ${segment.id} - "${cleanText}"`)
+      
+    } catch (error) {
+      session.logger.error(`Failed to create voice segment: ${String(error)}`)
+    }
+  }
+
+  private isMeaningfulText(text: string): boolean {
+    // Skip very short fragments
+    if (text.length < 3) return false
+    
+    // Skip single words that are likely fragments
+    const singleWords = ["he", "hey", "what", "the", "and", "or", "but", "so", "if", "when", "where", "why", "how"]
+    if (singleWords.includes(text.toLowerCase().trim())) return false
+    
+    // Skip repeated words
+    const words = text.toLowerCase().split(/\s+/)
+    if (words.length === 1 && words[0].length < 4) return false
+    
+    return true
+  }
+
+  private async cleanTranscriptionText(text: string): Promise<string> {
+    try {
+      // Simple local cleanup first
+      const wakeWords = ["hey noted", "noted", "start listening", "start", "stop listening", "stop"]
+      let cleanText = text.toLowerCase()
+      
+      wakeWords.forEach(word => {
+        cleanText = cleanText.replace(new RegExp(word, 'gi'), '')
+      })
+      
+      cleanText = cleanText.trim()
+      
+      // If text is too short or empty, return empty
+      if (cleanText.length < 5) return ""
+      
+      // Use GPT to clean the messy transcription
+      const completion = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: "You are a text cleaner. Take messy, repeated, or fragmented speech transcription and return only the clean, final intended message. Remove repetitions, fragments, wake words, and command words. Wake words to exclude: 'hey noted', 'noted', 'start listening', 'start', 'stop listening', 'stop'. Command words to exclude: 'mark this', 'bookmark', 'take note', 'summarize', 'analyze photo', 'help'. Return only the clean, meaningful content, nothing else."
+          },
+          {
+            role: "user",
+            content: `Clean this transcription: ${cleanText}`
+          }
+        ],
+        max_tokens: 100,
+        temperature: 0.1,
+      })
+      
+      const cleaned = completion.choices[0]?.message?.content?.trim() || ""
+      return cleaned.length > 3 ? cleaned : ""
+      
+    } catch (error) {
+      console.error(`GPT cleaning failed: ${String(error)}`)
+      return text // Return original if GPT fails
+    }
+  }
+
   private async showHelp(session: AppSession): Promise<void> {
-    const helpText = `Noted - Note Taking & Quizzing App
+    const helpText = `Noted - Smart Lecture & Meeting Capture App
 
 Wake Words: "Hey noted", "Noted", "Start listening"
-Voice Commands: "Take note", "Quiz me", "Summarize", "Analyze photo", "Help"
+Session Commands: "Start session", "Start lecture", "Start meeting", "End session"
+Voice Commands: "Take note", "Mark this", "Summarize", "Analyze photo", "Help"
 Stop Words: "Stop listening", "End session", "Goodbye noted"
 Button Controls: Camera short press (photo), Camera long press (quiz)
 Photos saved to: ./photos/
@@ -344,7 +596,7 @@ Note: Photo analysis is handled by backend - check web app for results`
     session.logger.info(`Help requested: ${helpText}`)
     
     try {
-      await session.audio.speak("Here are the available commands. Wake words: hey noted, noted, or start listening. While listening, you can say take note, quiz me, summarize, analyze photo, or help. Say stop listening to end.")
+      await session.audio.speak("Here are the available commands. Wake words: hey noted, noted, or start listening. Session commands: start session, start lecture, start meeting, end session. While listening, you can say take note, mark this, quiz me, summarize, analyze photo, or help. Say stop listening to end.")
     } catch (error) {
       session.logger.error(`Failed to speak help: ${String(error)}`)
     }
