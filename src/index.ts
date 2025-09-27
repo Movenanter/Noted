@@ -1,9 +1,17 @@
 import {AppServer, AppSession} from "@mentra/sdk"
+import * as fs from "fs"
+import * as path from "path"
 
 // Load configuration from environment variables
 const PACKAGE_NAME = process.env.PACKAGE_NAME
 const PORT = parseInt(process.env.PORT || "3000")
 const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY
+
+// Create photos directory if it doesn't exist
+const PHOTOS_DIR = path.join(process.cwd(), "photos")
+if (!fs.existsSync(PHOTOS_DIR)) {
+  fs.mkdirSync(PHOTOS_DIR, { recursive: true })
+}
 
 if (!MENTRAOS_API_KEY) {
   console.error("MENTRAOS_API_KEY environment variable is required")
@@ -24,8 +32,11 @@ class NotedApp extends AppServer {
   protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
     session.logger.info(`New session: ${sessionId} for user ${userId}`)
 
-    // Display welcome message on the glasses
-    session.layouts.showTextWall("Welcome to Noted! Your note-taking and quizzing companion.")
+    // Check device capabilities
+    const capabilities = session.capabilities
+    if (capabilities) {
+      session.logger.info(`Device capabilities: hasDisplay=${capabilities.hasDisplay}, hasCamera=${capabilities.hasCamera}`)
+    }
 
     // Set up event listeners for note-taking and quizzing
     this.setupEventListeners(session)
@@ -43,36 +54,71 @@ class NotedApp extends AppServer {
   private setupEventListeners(session: AppSession): void {
     // Listen for voice commands
     session.events.onTranscription((transcription) => {
-      session.logger.info("Voice input received", { transcription })
+      session.logger.info(`Voice input received: ${transcription.text}`)
       
       // Handle note-taking commands
-      if (transcription.toLowerCase().includes("take note")) {
-        this.handleTakeNote(session, transcription)
+      if (transcription.text.toLowerCase().includes("take note")) {
+        this.handleTakeNote(session, transcription.text)
       }
       // Handle quiz commands
-      else if (transcription.toLowerCase().includes("quiz me")) {
+      else if (transcription.text.toLowerCase().includes("quiz me")) {
         this.handleQuiz(session)
       }
       // Handle help commands
-      else if (transcription.toLowerCase().includes("help")) {
+      else if (transcription.text.toLowerCase().includes("help")) {
         this.showHelp(session)
       }
     })
 
     // Listen for button presses
     session.events.onButtonPress((button) => {
-      session.logger.info("Button pressed", { button })
+      session.logger.info(`Button pressed: ${button.buttonId} - ${button.pressType}`)
       
-      switch (button) {
-        case "primary":
-          this.handleTakeNote(session, "Quick note")
-          break
-        case "secondary":
-          this.handleQuiz(session)
-          break
+      // Handle camera button short press for photo capture
+      if (button.buttonId === 'camera' && button.pressType === 'short') {
+        this.handleTakePhoto(session)
+      }
+      // Handle camera button long press for quiz
+      else if (button.buttonId === 'camera' && button.pressType === 'long') {
+        this.handleQuiz(session)
       }
     })
   }
+
+  /**
+   * Handle photo capture functionality
+   * @param session - The app session instance
+   */
+  private async handleTakePhoto(session: AppSession): Promise<void> {
+    try {
+      session.logger.info("Taking photo...")
+      
+      // Check if camera is available
+      if (!session.capabilities?.hasCamera) {
+        session.logger.error("Camera not available on this device")
+        return
+      }
+      
+      // Take the photo
+      const photo = await session.camera.requestPhoto({
+        size: "large" // Options: "small", "medium", "large"
+      })
+      
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+      const filename = `photo_${timestamp}.jpg`
+      const filepath = path.join(PHOTOS_DIR, filename)
+      
+      // Save photo to local directory using the buffer
+      fs.writeFileSync(filepath, photo.buffer)
+      
+      session.logger.info(`Photo saved successfully: ${filename} (${photo.size} bytes, ${photo.mimeType})`)
+      
+    } catch (error) {
+      session.logger.error(`Failed to take photo: ${String(error)}`)
+    }
+  }
+
 
   /**
    * Handle note-taking functionality
@@ -80,8 +126,7 @@ class NotedApp extends AppServer {
    * @param content - The note content
    */
   private handleTakeNote(session: AppSession, content: string): void {
-    session.logger.info("Taking note", { content })
-    session.layouts.showTextWall(`Note: ${content}`)
+    session.logger.info(`Taking note: ${content}`)
     
     // TODO: Implement note storage and management
     // This would integrate with your web app for persistent storage
@@ -93,7 +138,6 @@ class NotedApp extends AppServer {
    */
   private handleQuiz(session: AppSession): void {
     session.logger.info("Starting quiz")
-    session.layouts.showTextWall("Quiz feature coming soon! Use your web app to create and manage quizzes.")
     
     // TODO: Implement quiz functionality
     // This would integrate with your web app for quiz management
@@ -113,20 +157,21 @@ Voice Commands:
 - "Help" - Show this help
 
 Button Controls:
-- Primary button: Quick note
-- Secondary button: Start quiz
+- Camera button short press: Take photo 📸
+- Camera button long press: Start quiz
 
+Photos saved to: ./photos/
 Visit your web app for full functionality!
     `.trim()
     
-    session.layouts.showTextWall(helpText)
+    session.logger.info(`Help requested: ${helpText}`)
   }
 }
 
 // Create and start the app server
 const server = new NotedApp({
-  packageName: PACKAGE_NAME,
-  apiKey: MENTRAOS_API_KEY,
+  packageName: PACKAGE_NAME!,
+  apiKey: MENTRAOS_API_KEY!,
   port: PORT,
 })
 
