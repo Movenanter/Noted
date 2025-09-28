@@ -34,7 +34,7 @@ export function HeroSection({ onStartQuiz, onStartFlashcards, showQuizButton }: 
               <Button 
                 onClick={onStartFlashcards}
                 variant="outline"
-                className="bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 font-medium text-[18px] px-[32px] py-[16px] h-auto rounded-[8px]"
+                className="bg-transparent border-2 border-white text-white hover:bg-white hover:text-[#1e3a8a] font-medium text-[18px] px-[32px] py-[16px] h-auto rounded-[8px]"
               >
                 Study Flashcards
               </Button>

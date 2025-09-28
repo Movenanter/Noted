@@ -123,32 +123,31 @@ export function QuickSummary() {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Header Section */}
+    <div className="space-y-6">
       <div className="text-center">
         <h1 className="text-4xl font-bold text-white mb-4">Quick Summary</h1>
-        <p className="text-xl text-white/80 max-w-3xl mx-auto">
+        <p className="text-xl text-white/80 mb-8">
           AI-generated summaries of your notes with key insights and action items
         </p>
       </div>
 
       {/* Generate New Summary */}
       <Card className="bg-white border-white/20">
-        <CardHeader className="pb-4">
+        <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Zap className="w-5 h-5" />
             AI Summary Generator
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0">
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-gray-600 flex-1">
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <p className="text-gray-600">
               Generate new summaries from your latest Mentra Live recordings
             </p>
             <Button 
               onClick={handleGenerateNew}
               disabled={isGenerating}
-              className="flex items-center gap-2 shrink-0"
+              className="flex items-center gap-2"
             >
               <RefreshCw className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
               {isGenerating ? 'Generating...' : 'Generate Summary'}
@@ -157,66 +156,64 @@ export function QuickSummary() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Summary List */}
-        <div className="lg:col-span-1">
-          <h2 className="text-2xl font-semibold text-white mb-6">Recent Summaries</h2>
-          <div className="space-y-4">
-            {summaries.map((summary) => {
-              const IconComponent = categoryIcons[summary.category];
-              return (
-                <Card 
-                  key={summary.id}
-                  className={`bg-white border-white/20 cursor-pointer transition-all hover:bg-gray-50 ${
-                    selectedSummary?.id === summary.id ? 'ring-2 ring-blue-500' : ''
-                  }`}
-                  onClick={() => setSelectedSummary(summary)}
-                >
-                  <CardHeader className="pb-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <CardTitle className="text-lg line-clamp-2 flex-1">{summary.title}</CardTitle>
-                      <IconComponent className="w-5 h-5 text-gray-400 shrink-0" />
-                    </div>
-                    <div className="flex items-center gap-3 pt-2">
-                      <Badge className={categoryColors[summary.category]}>
-                        {summary.category}
-                      </Badge>
-                      <span className="text-sm text-gray-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {summary.duration}
-                      </span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <p className="text-sm text-gray-600">{formatDate(summary.date)}</p>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+        <div className="lg:col-span-1 space-y-4">
+          <h2 className="text-2xl font-semibold text-white">Recent Summaries</h2>
+          
+          {summaries.map((summary) => {
+            const IconComponent = categoryIcons[summary.category];
+            return (
+              <Card 
+                key={summary.id}
+                className={`bg-white border-white/20 cursor-pointer transition-all hover:bg-gray-50 ${
+                  selectedSummary?.id === summary.id ? 'ring-2 ring-blue-500' : ''
+                }`}
+                onClick={() => setSelectedSummary(summary)}
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <CardTitle className="text-lg line-clamp-2">{summary.title}</CardTitle>
+                    <IconComponent className="w-5 h-5 text-gray-400 flex-shrink-0 ml-2" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className={categoryColors[summary.category]}>
+                      {summary.category}
+                    </Badge>
+                    <span className="text-sm text-gray-500 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {summary.duration}
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-gray-600">{formatDate(summary.date)}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {/* Summary Details */}
         <div className="lg:col-span-2">
           {selectedSummary ? (
             <div className="space-y-6">
-              {/* Summary Header */}
               <Card className="bg-white border-white/20">
-                <CardHeader className="pb-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <CardTitle className="text-2xl mb-3">{selectedSummary.title}</CardTitle>
-                      <div className="flex items-center gap-6 text-sm text-gray-600">
-                        <span className="flex items-center gap-2">
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <CardTitle className="text-2xl mb-2">{selectedSummary.title}</CardTitle>
+                      <div className="flex items-center gap-4 text-sm text-gray-600">
+                        <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
                           {formatDate(selectedSummary.date)}
                         </span>
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center gap-1">
                           <Clock className="w-4 h-4" />
                           {selectedSummary.duration}
                         </span>
                         {selectedSummary.participants && (
-                          <span className="flex items-center gap-2">
+                          <span className="flex items-center gap-1">
                             <Users className="w-4 h-4" />
                             {selectedSummary.participants.length} participants
                           </span>
@@ -232,18 +229,18 @@ export function QuickSummary() {
 
               {/* Key Points */}
               <Card className="bg-white border-white/20">
-                <CardHeader className="pb-4">
+                <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <TrendingUp className="w-5 h-5" />
                     Key Points
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="pt-0">
-                  <ul className="space-y-4">
+                <CardContent>
+                  <ul className="space-y-3">
                     {selectedSummary.keyPoints.map((point, index) => (
-                      <li key={index} className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2.5 shrink-0" />
-                        <p className="text-gray-700 leading-relaxed">{point}</p>
+                      <li key={index} className="flex gap-3">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0" />
+                        <p className="text-gray-700">{point}</p>
                       </li>
                     ))}
                   </ul>
@@ -252,18 +249,18 @@ export function QuickSummary() {
 
               {/* Action Items */}
               <Card className="bg-white border-white/20">
-                <CardHeader className="pb-4">
+                <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Target className="w-5 h-5" />
                     Action Items
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="pt-0">
-                  <ul className="space-y-4">
+                <CardContent>
+                  <ul className="space-y-3">
                     {selectedSummary.actionItems.map((item, index) => (
-                      <li key={index} className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2.5 shrink-0" />
-                        <p className="text-gray-700 leading-relaxed">{item}</p>
+                      <li key={index} className="flex gap-3">
+                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
+                        <p className="text-gray-700">{item}</p>
                       </li>
                     ))}
                   </ul>
@@ -273,16 +270,16 @@ export function QuickSummary() {
               {/* Participants */}
               {selectedSummary.participants && (
                 <Card className="bg-white border-white/20">
-                  <CardHeader className="pb-4">
+                  <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Users className="w-5 h-5" />
                       Participants
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="flex flex-wrap gap-3">
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
                       {selectedSummary.participants.map((participant, index) => (
-                        <Badge key={index} variant="outline" className="text-sm px-3 py-1">
+                        <Badge key={index} variant="outline">
                           {participant}
                         </Badge>
                       ))}
@@ -292,17 +289,14 @@ export function QuickSummary() {
               )}
             </div>
           ) : (
-            <div>
-              <h2 className="text-2xl font-semibold text-white mb-6">Summary Details</h2>
-              <Card className="bg-white border-white/20">
-                <CardContent className="flex items-center justify-center h-96">
-                  <div className="text-center">
-                    <Zap className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                    <p className="text-gray-500">Select a summary to view details</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <Card className="bg-white border-white/20">
+              <CardContent className="flex items-center justify-center h-96 text-gray-500">
+                <div className="text-center">
+                  <Zap className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                  <p>Select a summary to view details</p>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>
