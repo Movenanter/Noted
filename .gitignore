@@ -1,0 +1,73 @@
+# dependencies (bun install)
+node_modules
+
+# output
+out
+dist
+*.tgz
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
+
+#backend
+/mentra-backend/venv
+/mentra-backend/uploads
+/venv
+mentra-backend/mentra.db
+mentra-backend/test.db
+
+# mentra-backend (python) extras
+/mentra-backend/.venv
+/mentra-backend/env
+/mentra-backend/.pytest_cache/
+/mentra-backend/.mypy_cache/
+/mentra-backend/.ruff_cache/
+/mentra-backend/.tox/
+/mentra-backend/.nox/
+/mentra-backend/.coverage*
+/mentra-backend/htmlcov/
+/mentra-backend/build/
+/mentra-backend/dist/
+/mentra-backend/.eggs/
+/mentra-backend/*.egg-info/
+/mentra-backend/*.log
+/mentra-backend/uvicorn*.log
+/mentra-backend/*.db-shm
+/mentra-backend/*.db-wal
+
+# root-level dev artifacts and data
+/uploads/
+/mentra.db
+/test.db
+/test.db-shm
+/test.db-wal
+
+# Python caches and compiled files
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
