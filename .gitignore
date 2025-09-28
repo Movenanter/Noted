@@ -39,3 +39,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /venv
 mentra-backend/mentra.db
 mentra-backend/test.db
+
+# Python caches and compiled files
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
