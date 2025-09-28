@@ -117,3 +117,20 @@ class FlashcardCourse(Base):
 
     flashcard = relationship("Flashcard", backref="flashcard_course")
     course = relationship("Course")
+
+
+# ----------------------
+# Calendar Events
+# ----------------------
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_event"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tags_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

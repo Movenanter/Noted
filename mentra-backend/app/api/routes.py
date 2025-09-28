@@ -13,7 +13,7 @@ from app.core.security import require_bearer, require_webhook
 from app.core.config import settings
 from app.core.events import event_bus, build_event
 from app.db.session import get_session
-from app.models.entities import Session, TranscriptChunk, Asset, Flashcard, Course, SessionCourse, FlashcardCourse
+from app.models.entities import Session, TranscriptChunk, Asset, Flashcard, Course, SessionCourse, FlashcardCourse, CalendarEvent
 from app.services import llm_service
 from app.services.transcribe_service import transcribe_wav_bytes
 
@@ -407,3 +407,74 @@ def suggest_class(sid: str, _: bool = Depends(require_bearer)):
                 candidates.append({"course_id": crs.id, "name": crs.name, "score": score})
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return {"candidates": candidates[:5]}
+
+
+# ----------------------
+# Calendar Routes
+# ----------------------
+
+@router.post("/calendar/add")
+def calendar_add(body: Dict[str, Any], _: bool = Depends(require_bearer)):
+    """
+    Insert a calendar event into SQLite.
+    Input: {title, start (ISO8601), duration_min, location?, description?, tags?}
+    Output: {status:"success", event_id}
+    """
+    import json
+    from datetime import datetime
+    from dateutil import parser as dateparser  # type: ignore
+
+    title = str(body.get("title", "")).strip()
+    start_iso = str(body.get("start", "")).strip()
+    duration_min = int(body.get("duration_min", 60))
+    location = body.get("location")
+    description = body.get("description")
+    tags = body.get("tags")
+    if not title or not start_iso:
+        raise HTTPException(status_code=400, detail="title and start are required")
+    try:
+        start_dt = dateparser.isoparse(start_iso)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid start datetime")
+    with get_session() as db:
+        ev = CalendarEvent(
+            title=title,
+            start=start_dt,
+            duration_min=duration_min,
+            location=str(location) if location else None,
+            description=str(description) if description else None,
+            tags_json=json.dumps(tags) if tags is not None else None,
+        )
+        db.add(ev)
+        db.commit()
+        return {"status": "success", "event_id": ev.id}
+
+
+@router.get("/calendar/feed.ics")
+def calendar_feed_ics():
+    """Return an iCalendar feed with all events."""
+    from icalendar import Calendar, Event
+    from fastapi.responses import Response
+    from datetime import timedelta, datetime, timezone
+
+    cal = Calendar()
+    cal.add("prodid", "-//Mentra//Noted Calendar//EN")
+    cal.add("version", "2.0")
+
+    with get_session() as db:
+        rows = db.query(CalendarEvent).order_by(CalendarEvent.start.asc()).all()
+        now_utc = datetime.now(timezone.utc)
+        for r in rows:
+            ev = Event()
+            ev.add("summary", r.title)
+            ev.add("dtstart", r.start)
+            ev.add("dtend", r.start + timedelta(minutes=int(r.duration_min or 0)))
+            if r.location:
+                ev.add("location", r.location)
+            if r.description:
+                ev.add("description", r.description)
+            ev.add("dtstamp", now_utc)
+            ev.add("uid", r.id)
+            cal.add_component(ev)
+    ics_bytes = cal.to_ical()
+    return Response(content=ics_bytes, media_type="text/calendar; charset=utf-8")
