@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from ..core.config import settings
+from contextlib import contextmanager
 
 
 # Create SQLAlchemy engine
@@ -33,6 +34,16 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 # FastAPI dependency helper
 def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# Context manager for ad-hoc usage outside of FastAPI dependency injection
+@contextmanager
+def get_session():
     db = SessionLocal()
     try:
         yield db

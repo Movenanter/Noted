@@ -1,16 +1,7 @@
 from __future__ import annotations
 
-<<<<<<< HEAD
-from uuid import uuid4
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-
-from ..db.session import get_db
-from ..models.entities import Session as SessionModel
-=======
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -23,41 +14,22 @@ from app.db.session import get_session
 from app.models.entities import Session, TranscriptChunk, Asset, Flashcard, QuizAttempt
 from app.services import llm_service
 from app.services.transcribe_service import transcribe_wav_bytes
->>>>>>> backend/organize-six-commits
 
 
 router = APIRouter()
 
 
 @router.get("/health")
-<<<<<<< HEAD
-def health():
-=======
 async def health():
->>>>>>> backend/organize-six-commits
     return {"status": "ok"}
 
 
 @router.post("/sessions")
-<<<<<<< HEAD
-def create_session(db: Session = Depends(get_db)):
-    sid = str(uuid4())
-    s = SessionModel(id=sid)
-    db.add(s)
-    db.commit()
-    return {"id": sid}
-
-
-@router.get("/sessions")
-def list_sessions(db: Session = Depends(get_db)):
-    rows = db.query(SessionModel).order_by(SessionModel.created_at.desc()).all()
-    return [{"id": r.id, "created_at": r.created_at.isoformat()} for r in rows]
-=======
 def create_session(payload: Dict[str, Any], _: bool = Depends(require_bearer)):
     title = payload.get("title") or "Untitled"
     sid = str(uuid4())
     with get_session() as db:
-        db.add(Session(id=sid, title=title))
+        db.add(Session(id=sid, title=title, is_active=True))
         db.commit()
     return {"id": sid, "title": title}
 
@@ -69,7 +41,7 @@ def webhook_ingest(body: Dict[str, Any], __: bool = Depends(require_webhook)):
     with get_session() as db:
         # upsert session for robustness
         if not db.get(Session, sid):
-            db.add(Session(id=sid, title="Imported"))
+            db.add(Session(id=sid, title="Imported", is_active=True))
             db.flush()
         for c in chunks:
             db.add(
@@ -113,7 +85,6 @@ def flashcards_generate_sync(sid: str, body: Dict[str, Any], _: bool = Depends(r
         transcript_text = "\n".join(c.text for c in chunks)
         cards = llm_service.generate_flashcards(transcript_text, types, max_per_type)
         # persist
-        created = {"qa": [], "cloze": [], "mc": []}
         for t, items in cards.items():
             for it in items:
                 ans = it["answer"]
@@ -126,7 +97,6 @@ def flashcards_generate_sync(sid: str, body: Dict[str, Any], _: bool = Depends(r
                     source_ts=it.get("source_ts"),
                 )
                 db.add(fc)
-                created[t].append(fc)
         db.commit()
         return cards
 
@@ -160,10 +130,10 @@ def quiz_start(sid: str, _: bool = Depends(require_bearer)):
         cards = db.query(Flashcard).filter(Flashcard.session_id == sid).all()
         if not cards:
             return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": "No flashcards"})
-        qa = QuizAttempt(session_id=sid, score=0.0)
+        questions = [{"id": c.id, "type": c.type, "question": c.question} for c in cards]
+        qa = QuizAttempt(session_id=sid, score=0.0, questions_json=json.dumps(questions))
         db.add(qa)
         db.flush()
-        questions = [{"id": c.id, "type": c.type, "question": c.question} for c in cards]
         db.commit()
         return {"attempt_id": qa.id, "questions": questions}
 
@@ -188,7 +158,7 @@ def quiz_submit(sid: str, body: Dict[str, Any], _: bool = Depends(require_bearer
                 except Exception:
                     pass
         score = correct / total
-        qa = QuizAttempt(session_id=sid, score=score)
+        qa = QuizAttempt(session_id=sid, score=score, questions_json=json.dumps([]))
         db.add(qa)
         db.commit()
         return {"score": score}
@@ -217,6 +187,9 @@ def bookmark_range(sid: str, ts_start: str = Form(...), ts_end: str = Form(...),
     with get_session() as db:
         rows = db.query(TranscriptChunk).filter(TranscriptChunk.session_id == sid).all()
         for c in rows:
+            # defensive against None values
+            if c.ts_start is None or c.ts_end is None:
+                continue
             if c.ts_start >= s and c.ts_end <= e:
                 c.bookmarked = True
         db.commit()
@@ -231,7 +204,8 @@ def generate_summary(sid: str, _: bool = Depends(require_bearer)):
         summary = llm_service.generate_summary(text)
         ses = db.get(Session, sid)
         if ses:
-            ses.summary_json = summary
+            # Persist as JSON string in DB, but return dict in response
+            ses.summary_json = json.dumps(summary)
             db.commit()
         return summary
 
@@ -283,4 +257,3 @@ async def upload_and_transcribe(sid: str, file: UploadFile = File(...), _: bool 
         db.add(TranscriptChunk(session_id=sid, text=txt, ts_start=0.0, ts_end=0.0, bookmarked=True))
         db.commit()
     return {"text": txt}
->>>>>>> backend/organize-six-commits
