@@ -47,6 +47,10 @@ const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const PHOTOS_DIR = path.join(process.cwd(), "photos-audios")
 
+// Backend API Configuration
+const BACKEND_API_URL = process.env.BACKEND_API_URL || "https://unmultipliable-manifestatively-darrin.ngrok-free.dev"
+const BACKEND_API_TOKEN = process.env.BACKEND_API_TOKEN || "devsecret123"
+
 // Initialize OpenAI and create photos directory
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY })
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true })
@@ -251,7 +255,11 @@ class NotedApp extends AppServer {
       
       fs.writeFile(filepath, photo.buffer, (err) => {
         if (err) session.logger.error(`Save error: ${err}`)
-        else session.logger.info(`Photo saved: ${filename} (${photo.size} bytes)`)
+        else {
+          session.logger.info(`Photo saved: ${filename} (${photo.size} bytes)`)
+          // Send to backend for processing
+          this.sendPhotoToBackend(photo, filename, session)
+        }
       })
       
     } catch (error) {
@@ -506,8 +514,8 @@ class NotedApp extends AppServer {
       
       await session.audio.speak(`Session ended. Captured ${segmentCount} voice segments, ${photoCount} photos, and ${bookmarkCount} bookmarks over ${duration} minutes.`)
       
-      // TODO: Send session data to backend when ready
-      // await this.sendSessionToBackend(this.currentSession)
+      // Send session data to backend
+      await this.sendSessionToBackend(this.currentSession, session)
       
       this.currentSession = null
       
@@ -756,6 +764,9 @@ Note: Audio processing and transcription handled by external services`
       fs.writeFileSync(filepath, wavFile)
       session.logger.info(`Audio saved: ${filename} (${wavFile.length} bytes, ${duration.toFixed(2)}s)`)
       
+      // Send to backend for processing
+      await this.sendAudioToBackend(wavFile, filename, session)
+      
     } catch (error) {
       session.logger.error(`Failed to save audio file: ${String(error)}`)
     }
@@ -847,6 +858,120 @@ Note: Audio processing and transcription handled by external services`
     } catch (error) {
       session.logger.error(`Failed to toggle auto-capture: ${String(error)}`)
       await session.audio.speak("Failed to toggle auto-capture.")
+    }
+  }
+
+  // Backend integration methods
+  private async sendAudioToBackend(audioBuffer: Buffer, filename: string, session: AppSession): Promise<void> {
+    try {
+      // Use current session ID or create a default one for standalone audio
+      const sessionId = this.currentSession?.isActive ? this.currentSession.id : `standalone_${Date.now()}`
+      
+      if (!this.currentSession?.isActive) {
+        session.logger.info("No active session - using standalone session ID for backend upload")
+      }
+      session.logger.info(`Sending audio to backend: ${filename} for session ${sessionId}`)
+
+      // Create FormData for file upload
+      const formData = new FormData()
+      const blob = new Blob([audioBuffer], { type: 'audio/wav' })
+      formData.append('file', blob, filename)
+      
+      const response = await fetch(`${BACKEND_API_URL}/sessions/${sessionId}/transcribe`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${BACKEND_API_TOKEN}`,
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`${response.status} ${response.statusText} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      session.logger.info(`✅ Audio sent to backend successfully: ${filename}`)
+      session.logger.info(`Backend response: ${JSON.stringify(result)}`)
+
+    } catch (error) {
+      session.logger.error(`❌ Failed to send audio to backend: ${String(error)}`)
+    }
+  }
+
+  private async sendPhotoToBackend(photo: PhotoData, filename: string, session: AppSession): Promise<void> {
+    try {
+      if (!this.currentSession?.isActive) {
+        session.logger.info("No active session - skipping backend photo upload")
+        return
+      }
+
+      const sessionId = this.currentSession.id
+      session.logger.info(`Sending photo to backend: ${filename} for session ${sessionId}`)
+
+      // Create FormData for file upload
+      const formData = new FormData()
+      const blob = new Blob([photo.buffer], { type: photo.mimeType })
+      formData.append('file', blob, filename)
+      
+      const response = await fetch(`${BACKEND_API_URL}/sessions/${sessionId}/assets`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${BACKEND_API_TOKEN}`,
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`${response.status} ${response.statusText} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      session.logger.info(`✅ Photo sent to backend successfully: ${filename}`)
+      session.logger.info(`Backend response: ${JSON.stringify(result)}`)
+
+    } catch (error) {
+      session.logger.error(`❌ Failed to send photo to backend: ${String(error)}`)
+    }
+  }
+
+  private async sendSessionToBackend(sessionData: SessionData, session: AppSession): Promise<void> {
+    try {
+      session.logger.info(`Sending session data to backend: ${sessionData.id}`)
+
+      const response = await fetch(`${BACKEND_API_URL}/sessions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${BACKEND_API_TOKEN}`,
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({
+          id: sessionData.id,
+          title: sessionData.type,
+          startTime: sessionData.startTime.toISOString(),
+          endTime: sessionData.endTime?.toISOString(),
+          isActive: sessionData.isActive,
+          segments: sessionData.segments.length,
+          photos: sessionData.photos.length,
+          bookmarks: sessionData.bookmarks.length
+        })
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`${response.status} ${response.statusText} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      session.logger.info(`✅ Session data sent to backend successfully: ${sessionData.id}`)
+      session.logger.info(`Backend response: ${JSON.stringify(result)}`)
+
+    } catch (error) {
+      session.logger.error(`❌ Failed to send session data to backend: ${String(error)}`)
     }
   }
 }
