@@ -44,13 +44,13 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
   };
 
   return (
-    <nav className="bg-[#1e3a8a] border-b border-white/10 sticky top-0 z-50">
+    <nav className="bg-card border-b border-border sticky top-0 z-50 backdrop-blur-sm bg-card/95">
       <div className="max-w-[1135px] mx-auto px-[80px]">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <button 
             onClick={() => handleNavClick('home')}
-            className="text-white font-semibold text-xl hover:text-white/80 transition-colors"
+            className="text-primary font-semibold text-xl hover:text-primary/80 transition-colors"
           >
             Noted
           </button>
@@ -65,8 +65,8 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
                   onClick={() => handleNavClick(item.id)}
                   className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
                     currentView === item.id
-                      ? 'bg-white text-[#1e3a8a]'
-                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                   }`}
                 >
                   <IconComponent className="w-4 h-4" />
@@ -86,8 +86,8 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
                   onClick={() => handleNavClick(item.id)}
                   className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-colors ${
                     currentView === item.id
-                      ? 'bg-white text-[#1e3a8a]'
-                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                   }`}
                 >
                   <IconComponent className="w-4 h-4" />
@@ -98,7 +98,7 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
             
             <Button
               onClick={onShowLogin}
-              className="bg-white hover:bg-gray-100 text-[#1e3a8a]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               Login
             </Button>
@@ -107,7 +107,7 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
           {/* Mobile Menu Button */}
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="lg:hidden text-white p-2"
+            className="lg:hidden text-foreground p-2 hover:bg-accent rounded-lg transition-colors"
           >
             {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -115,7 +115,7 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
 
         {/* Mobile Navigation */}
         {isMenuOpen && (
-          <div className="lg:hidden py-4 border-t border-white/10">
+          <div className="lg:hidden py-4 border-t border-border">
             <div className="space-y-2">
               {navigationItems.map((item) => {
                 const IconComponent = item.icon;
@@ -125,8 +125,8 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
                     onClick={() => handleNavClick(item.id)}
                     className={`flex items-center space-x-3 w-full px-3 py-2 rounded-lg transition-colors ${
                       currentView === item.id
-                        ? 'bg-white text-[#1e3a8a]'
-                        : 'text-white/80 hover:text-white hover:bg-white/10'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
                     <IconComponent className="w-4 h-4" />
@@ -135,7 +135,7 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
                 );
               })}
               
-              <div className="border-t border-white/10 pt-2 mt-2">
+              <div className="border-t border-border pt-2 mt-2">
                 {bottomItems.map((item) => {
                   const IconComponent = item.icon;
                   return (
@@ -144,8 +144,8 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
                       onClick={() => handleNavClick(item.id)}
                       className={`flex items-center space-x-3 w-full px-3 py-2 rounded-lg transition-colors ${
                         currentView === item.id
-                          ? 'bg-white text-[#1e3a8a]'
-                          : 'text-white/80 hover:text-white hover:bg-white/10'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                       }`}
                     >
                       <IconComponent className="w-4 h-4" />
@@ -159,7 +159,7 @@ export function Navigation({ currentView, onViewChange, onShowLogin }: Navigatio
                     onShowLogin();
                     setIsMenuOpen(false);
                   }}
-                  className="w-full mt-2 bg-white hover:bg-gray-100 text-[#1e3a8a]"
+                  className="w-full mt-2 bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
                   Login
                 </Button>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigation } from './components/navigation';
 import { HomePage } from './components/home-page';
 import { ConversationTimeline } from './components/conversation-timeline';
@@ -21,6 +21,11 @@ type ViewType =
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [showLogin, setShowLogin] = useState(false);
+
+  // Enable dark theme
+  useEffect(() => {
+    document.documentElement.classList.add('dark');
+  }, []);
 
   const handleViewChange = (view: ViewType) => {
     setCurrentView(view);
@@ -50,7 +55,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1e3a8a]">
+    <div className="min-h-screen bg-background">
       <Navigation 
         currentView={currentView}
         onViewChange={handleViewChange}
@@ -63,7 +68,7 @@ export default function App() {
             <Button 
               variant="outline" 
               onClick={handleBackToHome}
-              className="mb-4 bg-white hover:bg-gray-100 text-[#1e3a8a] border-white"
+              className="mb-4"
             >
               ← Back to Home
             </Button>
