@@ -16,6 +16,7 @@ from app.db.session import get_session
 from app.models.entities import Session, TranscriptChunk, Asset, Flashcard, Course, SessionCourse, FlashcardCourse, CalendarEvent
 from app.services import llm_service
 from app.services.transcribe_service import transcribe_wav_bytes
+from app.services.vision_service import analyze_image
 
 
 router = APIRouter()
@@ -67,10 +68,20 @@ def webhook_ingest(body: Dict[str, Any], background_tasks: BackgroundTasks, __: 
 def upload_asset(sid: str, background_tasks: BackgroundTasks, file: UploadFile = File(...), _: bool = Depends(require_bearer)):
     # For tests, don't persist file, just record meta path
     path = f"uploads/{sid}_{file.filename}"
+    raw = file.file.read()
     with get_session() as db:
+        # For assets, require an existing session; invalid SID should return 404
         if not db.get(Session, sid):
             raise HTTPException(status_code=404, detail="Session not found")
         db.add(Asset(session_id=sid, path=path, kind="image"))
+        # Analyze image with Gemini/vision service and append to transcript as a chunk
+        try:
+            analysis = analyze_image(raw, mime=file.content_type or "image/png")
+            if analysis:
+                db.add(TranscriptChunk(session_id=sid, text=f"[image-notes] {analysis}", ts_start=0.0, ts_end=0.0, bookmarked=False))
+        except Exception:
+            # Non-fatal: keep asset even if analysis fails
+            pass
         db.commit()
     background_tasks.add_task(event_bus.broadcast, build_event("asset.uploaded", sid, f"Asset {file.filename} uploaded", {"path": path}))
     return {"path": path}
@@ -83,7 +94,10 @@ def flashcards_generate_sync(sid: str, body: Dict[str, Any], background_tasks: B
     with get_session() as db:
         sess = db.get(Session, sid)
         if not sess:
-            raise HTTPException(status_code=404, detail="Session not found")
+            # Create a placeholder session so future artifacts can attach safely
+            sess = Session(id=sid, title="Imported", is_active=True)
+            db.add(sess)
+            db.flush()
         # gather transcript
         chunks = db.query(TranscriptChunk).filter(TranscriptChunk.session_id == sid).order_by(TranscriptChunk.ts_start).all()
         if not chunks:
@@ -145,6 +159,10 @@ def quiz_start(sid: str, background_tasks: BackgroundTasks, _: bool = Depends(re
     # Local import to avoid static analysis self-dependency warning in some IDEs
     from app.models.entities import QuizAttempt
     with get_session() as db:
+        # Ensure session exists to satisfy FK on QuizAttempt
+        if not db.get(Session, sid):
+            db.add(Session(id=sid, title="Imported", is_active=True))
+            db.flush()
         cards = db.query(Flashcard).filter(Flashcard.session_id == sid).all()
         if not cards:
             return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": "No flashcards"})
@@ -163,6 +181,10 @@ def quiz_submit(sid: str, body: Dict[str, Any], background_tasks: BackgroundTask
     from app.models.entities import QuizAttempt
     answers: Dict[str, Any] = body.get("answers", {})
     with get_session() as db:
+        # Ensure session exists to satisfy FK on QuizAttempt
+        if not db.get(Session, sid):
+            db.add(Session(id=sid, title="Imported", is_active=True))
+            db.flush()
         cards = db.query(Flashcard).filter(Flashcard.session_id == sid).all()
         correct = 0
         total = max(len(cards), 1)
@@ -263,6 +285,18 @@ async def ws_live_audio(websocket: WebSocket, sid: str):
                 if buffer:
                     text = transcribe_wav_bytes(bytes(buffer))
                     buffer.clear()
+                    # Persist the final transcript chunk to DB for this session
+                    try:
+                        with get_session() as db:
+                            # ensure session exists for safety
+                            if not db.get(Session, sid):
+                                db.add(Session(id=sid, title="Imported", is_active=True))
+                                db.flush()
+                            db.add(TranscriptChunk(session_id=sid, text=text, ts_start=0.0, ts_end=0.0, bookmarked=True))
+                            db.commit()
+                    except Exception:
+                        # Non-fatal for WS response
+                        pass
                     await websocket.send_json({"transcript": text, "final": True})
                 else:
                     # Even if no audio buffered, respond to flush to avoid hanging clients
@@ -282,6 +316,10 @@ async def upload_and_transcribe(sid: str, file: UploadFile = File(...), _: bool 
     data = await file.read()
     txt = transcribe_wav_bytes(data, mime=file.content_type or "audio/wav")
     with get_session() as db:
+        # Ensure session exists (glasses may generate their own SID before calling this)
+        if not db.get(Session, sid):
+            db.add(Session(id=sid, title="Imported", is_active=True))
+            db.flush()
         db.add(TranscriptChunk(session_id=sid, text=txt, ts_start=0.0, ts_end=0.0, bookmarked=True))
         db.commit()
     # We are already in async context here

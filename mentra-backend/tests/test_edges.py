@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from uuid import uuid4
 from app.main import app
 
 client = TestClient(app)
@@ -21,11 +22,12 @@ def test_quiz_start_without_flashcards_returns_400():
 
 
 def test_upload_asset_invalid_session_404(tmp_path):
+    missing_sid = f"missing-{uuid4()}"
     p = tmp_path / "img.png"
     p.write_bytes(b"fake")
     with open(p, "rb") as fh:
         r = client.post(
-            f"/sessions/does-not-exist/assets",
+            f"/sessions/{missing_sid}/assets",
             headers={"Authorization": "Bearer devsecret123"},
             files={"file": ("img.png", fh, "image/png")},
         )
