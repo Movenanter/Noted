@@ -127,6 +127,10 @@ class NotedApp extends AppServer {
       if (!this.isListening) {
         if (this.checkWakeWords(transcription.text)) {
           this.startListening(session)
+          // Auto-start a session when "hey noted" is detected
+          if (transcription.text.toLowerCase().includes("hey noted") || transcription.text.toLowerCase().includes("noted")) {
+            this.handleStartSession(session, "conversation")
+          }
           return // Don't process the wake word as a note
         }
         // Don't process anything else when not listening
@@ -139,8 +143,11 @@ class NotedApp extends AppServer {
           return // Don't process the stop word as a note
         }
         
-        // Only process meaningful transcriptions as notes (but not wake words)
-        if (this.isMeaningfulText(transcription.text) && !this.checkWakeWords(transcription.text)) {
+        // First, check if it's a voice command
+        const wasCommand = this.processVoiceCommand(session, transcription.text)
+        
+        // Only process meaningful transcriptions as notes (but not wake words or commands)
+        if (!wasCommand && this.isMeaningfulText(transcription.text) && !this.checkWakeWords(transcription.text)) {
           this.handleTakeNote(session, transcription.text)
         }
       }
@@ -191,39 +198,57 @@ class NotedApp extends AppServer {
 
   // Voice commands will be processed via external speech recognition on audio files
   // This method is kept for button-based commands and future text input
-  private processVoiceCommand(session: AppSession, text: string): void {
+  private processVoiceCommand(session: AppSession, text: string): boolean {
     const lowerText = text.toLowerCase()
     
     // Prevent duplicate processing of the same command
     if (this.lastProcessedCommand === lowerText) {
-      return
+      return false
     }
     
     // Basic command processing - could be enhanced with external speech recognition
     if (lowerText.includes("help")) {
       this.lastProcessedCommand = lowerText
       this.showHelp(session)
+      return true
     }
     else if (lowerText.includes("analyze photo") || lowerText.includes("describe photo")) {
       this.lastProcessedCommand = lowerText
-      this.handleAnalyzePhotoPlaceholder(session)
+      this.handleAnalyzePhoto(session)
+      return true
     }
     else if (lowerText.includes("mark this") || lowerText.includes("bookmark")) {
       this.lastProcessedCommand = lowerText
       this.handleMarkMoment(session)
+      return true
+    }
+    else if (lowerText.includes("summarize") || lowerText.includes("summary")) {
+      this.lastProcessedCommand = lowerText
+      this.handleSummarizeAudio(session)
+      return true
+    }
+    else if (lowerText.includes("export") || lowerText.includes("save session")) {
+      this.lastProcessedCommand = lowerText
+      this.handleExportSession(session)
+      return true
     }
     else if (lowerText.includes("start session") || lowerText.includes("start lecture") || lowerText.includes("start meeting")) {
       this.lastProcessedCommand = lowerText
       this.handleStartSession(session, lowerText)
+      return true
     }
-        else if (lowerText.includes("end session") || lowerText.includes("stop session")) {
-          this.lastProcessedCommand = lowerText
-          this.handleEndSession(session)
-        }
-        else if (lowerText.includes("toggle auto capture") || lowerText.includes("auto capture")) {
-          this.lastProcessedCommand = lowerText
-          this.handleToggleAutoCapture(session)
-        }
+    else if (lowerText.includes("end session") || lowerText.includes("stop session")) {
+      this.lastProcessedCommand = lowerText
+      this.handleEndSession(session)
+      return true
+    }
+    else if (lowerText.includes("toggle auto capture") || lowerText.includes("auto capture")) {
+      this.lastProcessedCommand = lowerText
+      this.handleToggleAutoCapture(session)
+      return true
+    }
+    
+    return false // No command was processed
   }
 
   private async handleTakePhoto(session: AppSession): Promise<void> {
@@ -271,7 +296,7 @@ class NotedApp extends AppServer {
 
   private async welcomeUser(session: AppSession): Promise<void> {
     try {
-      await session.audio.speak("Welcome to Noted! Say 'hey noted' to start listening. I'll only record audio when you're actively listening.")
+      await session.audio.speak("Welcome to Noted! Say 'hey noted' to start a session and begin listening. I'll automatically start recording when you speak.")
       session.logger.info("Welcome message played")
       session.logger.info("Wake word detection active - waiting for 'hey noted'")
       session.logger.info("Controls: Main button short press = start, long press = stop, Camera button = photo")
@@ -355,8 +380,7 @@ class NotedApp extends AppServer {
     session.logger.info(`Taking note: ${content}`)
     this.notes.push(content)
     
-    session.audio.speak(`Note saved: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`)
-      .catch(error => session.logger.error(`Failed to speak note confirmation: ${String(error)}`))
+    // Removed the annoying "Note saved:" confirmation
   }
 
   private async handleSummarize(session: AppSession): Promise<void> {
@@ -444,10 +468,6 @@ class NotedApp extends AppServer {
   }
 
 
-  private handleQuiz(session: AppSession): void {
-    session.logger.info("Starting quiz")
-    // TODO: Implement quiz functionality
-  }
 
   private async handleStartSession(session: AppSession, command: string): Promise<void> {
     try {
@@ -458,9 +478,14 @@ class NotedApp extends AppServer {
 
       // Determine session type from command
       let sessionType: 'lecture' | 'meeting' | 'interview' | 'conversation' = 'conversation'
-      if (command.includes('lecture')) sessionType = 'lecture'
-      else if (command.includes('meeting')) sessionType = 'meeting'
-      else if (command.includes('interview')) sessionType = 'interview'
+      if (typeof command === 'string') {
+        if (command.includes('lecture')) sessionType = 'lecture'
+        else if (command.includes('meeting')) sessionType = 'meeting'
+        else if (command.includes('interview')) sessionType = 'interview'
+      } else {
+        // If command is already a session type, use it directly
+        sessionType = command as 'lecture' | 'meeting' | 'interview' | 'conversation'
+      }
 
       // Create new session
       this.currentSession = {
@@ -569,7 +594,7 @@ Note: Audio processing and transcription handled by external services`
     session.logger.info(`Help requested: ${helpText}`)
     
     try {
-      await session.audio.speak("Here are the available commands. Wake words: hey noted, noted, or start listening. Session commands: start session, start lecture, start meeting, end session. While listening, you can say mark this, summarize, analyze photo, or help. Say stop listening to end. Audio will be recorded and processed automatically.")
+      await session.audio.speak("Here are the available commands. Say 'hey noted' to start a session and begin listening. While in a session, you can say mark this, summarize, analyze photo, or help. Say stop listening to end. Audio will be recorded and processed automatically with AI transcription.")
     } catch (error) {
       session.logger.error(`Failed to speak help: ${String(error)}`)
     }
@@ -765,54 +790,83 @@ Note: Audio processing and transcription handled by external services`
       session.logger.info(`Audio saved: ${filename} (${wavFile.length} bytes, ${duration.toFixed(2)}s)`)
       
       // Send to backend for processing
-      await this.sendAudioToBackend(wavFile, filename, session)
+      await this.sendAudioToBackend(Buffer.from(wavFile), filename, session)
       
     } catch (error) {
       session.logger.error(`Failed to save audio file: ${String(error)}`)
     }
   }
 
-  // Example method for external speech recognition integration
+  // Enhanced audio transcription using OpenAI Whisper
   private async transcribeAudio(audioData: Int16Array, session: AppSession): Promise<string> {
     try {
-      // This is a placeholder for external speech recognition
-      // You could integrate with services like:
-      // - OpenAI Whisper API
-      // - Google Speech-to-Text
-      // - Azure Speech Services
-      // - Amazon Transcribe
+      if (!OPENAI_API_KEY) {
+        session.logger.warn("No OpenAI API key - using placeholder transcription")
+        return "[Transcription requires OpenAI API key]"
+      }
+
+      session.logger.info("Transcribing audio with OpenAI Whisper...")
       
-      session.logger.info("Transcribing audio with external service...")
+      // Convert Int16Array to WAV buffer
+      const wavBuffer = this.int16ArrayToWavBuffer(audioData)
       
-      // Example: Convert to base64 for API calls
-      // const base64Audio = Buffer.from(audioData.buffer).toString('base64')
+      // Create FormData for OpenAI API
+      const formData = new FormData()
+      const blob = new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' })
+      formData.append('file', blob, 'audio.wav')
+      formData.append('model', 'whisper-1')
+      formData.append('language', 'en')
       
-      // Example API call (replace with your preferred service):
-      /*
       const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          file: base64Audio,
-          model: 'whisper-1',
-          language: 'en'
-        })
+        body: formData
       })
       
-      const result = await response.json()
-      return result.text || ''
-      */
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`)
+      }
       
-      // For now, return a placeholder
-      return "[External transcription would go here]"
+      const result = await response.json()
+      const transcription = result.text || ''
+      
+      session.logger.info(`Transcription completed: ${transcription.substring(0, 100)}...`)
+      return transcription
       
     } catch (error) {
       session.logger.error(`Failed to transcribe audio: ${String(error)}`)
-      return ""
+      return "[Transcription failed]"
     }
+  }
+
+  // Convert Int16Array to WAV buffer
+  private int16ArrayToWavBuffer(audioData: Int16Array): Buffer {
+    const length = audioData.length
+    const buffer = Buffer.alloc(44 + length * 2)
+    
+    // WAV header
+    buffer.write('RIFF', 0)
+    buffer.writeUInt32LE(36 + length * 2, 4)
+    buffer.write('WAVE', 8)
+    buffer.write('fmt ', 12)
+    buffer.writeUInt32LE(16, 16)
+    buffer.writeUInt16LE(1, 20)
+    buffer.writeUInt16LE(1, 22)
+    buffer.writeUInt32LE(16000, 24)
+    buffer.writeUInt32LE(32000, 28)
+    buffer.writeUInt16LE(2, 32)
+    buffer.writeUInt16LE(16, 34)
+    buffer.write('data', 36)
+    buffer.writeUInt32LE(length * 2, 40)
+    
+    // Audio data
+    for (let i = 0; i < length; i++) {
+      buffer.writeInt16LE(audioData[i], 44 + i * 2)
+    }
+    
+    return buffer
   }
 
   private startAutoCapture(session: AppSession): void {
@@ -874,7 +928,7 @@ Note: Audio processing and transcription handled by external services`
 
       // Create FormData for file upload
       const formData = new FormData()
-      const blob = new Blob([audioBuffer], { type: 'audio/wav' })
+      const blob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/wav' })
       formData.append('file', blob, filename)
       
       const response = await fetch(`${BACKEND_API_URL}/sessions/${sessionId}/transcribe`, {
@@ -912,7 +966,7 @@ Note: Audio processing and transcription handled by external services`
 
       // Create FormData for file upload
       const formData = new FormData()
-      const blob = new Blob([photo.buffer], { type: photo.mimeType })
+      const blob = new Blob([new Uint8Array(photo.buffer)], { type: photo.mimeType })
       formData.append('file', blob, filename)
       
       const response = await fetch(`${BACKEND_API_URL}/sessions/${sessionId}/assets`, {
@@ -972,6 +1026,226 @@ Note: Audio processing and transcription handled by external services`
 
     } catch (error) {
       session.logger.error(`❌ Failed to send session data to backend: ${String(error)}`)
+    }
+  }
+
+  // AI-powered features
+
+  private async analyzePhotoWithAI(photo: PhotoData, session: AppSession): Promise<string | null> {
+    try {
+      if (!OPENAI_API_KEY) {
+        session.logger.warn("No OpenAI API key - cannot analyze photo")
+        return null
+      }
+
+      // Convert photo buffer to base64
+      const base64Image = photo.buffer.toString('base64')
+      
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4-vision-preview',
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Describe this image in detail. Focus on any text, diagrams, or important visual elements that might be relevant for note-taking or studying.'
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${photo.mimeType};base64,${base64Image}`
+                }
+              }
+            ]
+          }],
+          max_tokens: 300
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`)
+      }
+
+      const result = await response.json()
+      return result.choices[0]?.message?.content || null
+      
+    } catch (error) {
+      session.logger.error(`Photo analysis failed: ${String(error)}`)
+      return null
+    }
+  }
+
+  private async handleAnalyzePhoto(session: AppSession): Promise<void> {
+    try {
+      const latestPhotoPath = this.getLatestPhoto()
+      if (!latestPhotoPath) {
+        await session.audio.speak("No photos found. Take a photo first with the camera button.")
+        return
+      }
+      
+      await session.audio.speak("Analyzing photo with AI...")
+      session.logger.info("Photo analysis requested")
+      
+      // Read the photo file and create PhotoData object
+      const photoBuffer = fs.readFileSync(latestPhotoPath)
+      const photoData: PhotoData = {
+        buffer: photoBuffer,
+        mimeType: 'image/jpeg',
+        filename: path.basename(latestPhotoPath),
+        requestId: `analysis_${Date.now()}`,
+        size: photoBuffer.length,
+        timestamp: new Date()
+      }
+      
+      // Analyze photo using OpenAI Vision API
+      const analysis = await this.analyzePhotoWithAI(photoData, session)
+      
+      if (analysis) {
+        await session.audio.speak(`Photo analysis: ${analysis}`)
+        session.logger.info(`Photo analysis result: ${analysis}`)
+      } else {
+        await session.audio.speak("Failed to analyze photo. Please try again.")
+      }
+      
+    } catch (error) {
+      session.logger.error(`Photo analysis failed: ${String(error)}`)
+      await session.audio.speak("Failed to analyze photo.")
+    }
+  }
+
+  // Enhanced audio summarization
+  private async handleSummarizeAudio(session: AppSession): Promise<void> {
+    try {
+      if (!this.currentSession?.isActive) {
+        await session.audio.speak("No active session. Start a session first to summarize audio.")
+        return
+      }
+
+      const segments = this.currentSession.segments
+      if (segments.length === 0) {
+        await session.audio.speak("No audio content available to summarize. Record some audio first.")
+        return
+      }
+
+      await session.audio.speak("Generating summary of your session...")
+      
+      // Combine all transcriptions
+      const fullText = segments.map(s => s.transcription).join(' ')
+      
+      if (fullText.trim().length < 100) {
+        await session.audio.speak("Not enough content to generate a meaningful summary. Record more audio first.")
+        return
+      }
+
+      // Generate summary using OpenAI
+      const summary = await this.generateSummaryFromText(fullText, session)
+      
+      if (summary) {
+        await session.audio.speak(`Summary: ${summary}`)
+        session.logger.info(`Session summary: ${summary}`)
+      } else {
+        await session.audio.speak("Failed to generate summary. Please try again.")
+      }
+      
+    } catch (error) {
+      session.logger.error(`Summary generation failed: ${String(error)}`)
+      await session.audio.speak("Failed to generate summary.")
+    }
+  }
+
+  private async generateSummaryFromText(text: string, session: AppSession): Promise<string | null> {
+    try {
+      if (!OPENAI_API_KEY) {
+        session.logger.warn("No OpenAI API key - cannot generate summary")
+        return null
+      }
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [{
+            role: 'user',
+            content: `Summarize this audio transcription in 2-3 sentences, focusing on the key points and main topics discussed: "${text}"`
+          }],
+          max_tokens: 150,
+          temperature: 0.3
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`)
+      }
+
+      const result = await response.json()
+      return result.choices[0]?.message?.content || null
+      
+    } catch (error) {
+      session.logger.error(`Summary generation failed: ${String(error)}`)
+      return null
+    }
+  }
+
+  // Session export functionality
+  private async handleExportSession(session: AppSession): Promise<void> {
+    try {
+      if (!this.currentSession?.isActive) {
+        await session.audio.speak("No active session to export. Start a session first.")
+        return
+      }
+
+      await session.audio.speak("Exporting session data...")
+      
+      const sessionData = {
+        id: this.currentSession.id,
+        type: this.currentSession.type,
+        startTime: this.currentSession.startTime.toISOString(),
+        endTime: this.currentSession.endTime?.toISOString(),
+        isActive: this.currentSession.isActive,
+        segments: this.currentSession.segments.map(segment => ({
+          id: segment.id,
+          timestamp: segment.timestamp.toISOString(),
+          transcription: segment.transcription,
+          duration: segment.duration,
+          isBookmarked: segment.isBookmarked
+        })),
+        photos: this.currentSession.photos.map(photo => ({
+          filename: photo.filename,
+          mimeType: photo.mimeType,
+          size: photo.size,
+          timestamp: photo.timestamp.toISOString()
+        })),
+        bookmarks: this.currentSession.bookmarks.map(bookmark => ({
+          id: bookmark.id,
+          timestamp: bookmark.timestamp.toISOString(),
+          type: bookmark.type,
+          description: bookmark.description
+        }))
+      }
+
+      // Save to JSON file
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+      const filename = `session_${this.currentSession.id}_${timestamp}.json`
+      const filepath = path.join(PHOTOS_DIR, filename)
+      
+      fs.writeFileSync(filepath, JSON.stringify(sessionData, null, 2))
+      
+      await session.audio.speak(`Session exported successfully to ${filename}`)
+      session.logger.info(`Session exported: ${filepath}`)
+      
+    } catch (error) {
+      session.logger.error(`Session export failed: ${String(error)}`)
+      await session.audio.speak("Failed to export session.")
     }
   }
 }
