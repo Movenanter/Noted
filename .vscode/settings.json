@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/mentra-backend/venv/bin/python",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/mentra-backend"
+  ],
+  "python.analysis.typeCheckingMode": "basic"
+}

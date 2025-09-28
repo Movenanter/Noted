@@ -7,11 +7,13 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import status
 from fastapi.responses import JSONResponse
+from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.security import require_bearer, require_webhook
 from app.db.session import get_session
 from app.models.entities import Session, TranscriptChunk, Asset, Flashcard, QuizAttempt
 from app.services import llm_service
+from app.services.transcribe_service import transcribe_wav_bytes
 
 
 router = APIRouter()
@@ -204,3 +206,52 @@ def generate_summary(sid: str, _: bool = Depends(require_bearer)):
             ses.summary_json = summary
             db.commit()
         return summary
+
+
+# Live audio via WebSocket (binary frames)
+@router.websocket("/ws/sessions/{sid}/live-audio")
+async def ws_live_audio(websocket: WebSocket, sid: str):
+    # No auth dependency on websockets for ease of local dev
+    await websocket.accept()
+    buffer: bytearray = bytearray()
+    try:
+        while True:
+            msg = await websocket.receive()
+            mtype = msg.get("type")
+            if mtype == "websocket.disconnect":
+                break
+            # Binary audio frames
+            if "bytes" in msg and msg["bytes"]:
+                buffer.extend(msg["bytes"])  # accumulate raw WAV bytes from client
+                # Transcribe on rolling buffer (naive):
+                if len(buffer) > 16000:  # ~1 sec at 16kHz 16-bit mono
+                    text = transcribe_wav_bytes(bytes(buffer))
+                    await websocket.send_json({"transcript": text})
+                    buffer.clear()
+            # Control/text messages
+            elif msg.get("text") == "flush":
+                if buffer:
+                    text = transcribe_wav_bytes(bytes(buffer))
+                    buffer.clear()
+                    await websocket.send_json({"transcript": text, "final": True})
+                else:
+                    # Even if no audio buffered, respond to flush to avoid hanging clients
+                    await websocket.send_json({"transcript": "", "final": True})
+            else:
+                # ignore other texts; send pong
+                await websocket.send_json({"ok": True})
+    except WebSocketDisconnect:
+        pass
+    except RuntimeError:
+        # Raised if receive() called after disconnect; safe to ignore for tests
+        pass
+
+
+@router.post("/sessions/{sid}/transcribe")
+async def upload_and_transcribe(sid: str, file: UploadFile = File(...), _: bool = Depends(require_bearer)):
+    data = await file.read()
+    txt = transcribe_wav_bytes(data, mime=file.content_type or "audio/wav")
+    with get_session() as db:
+        db.add(TranscriptChunk(session_id=sid, text=txt, ts_start=0.0, ts_end=0.0, bookmarked=True))
+        db.commit()
+    return {"text": txt}

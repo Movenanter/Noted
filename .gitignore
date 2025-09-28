@@ -32,3 +32,17 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+#backend
+/mentra-backend/venv
+/mentra-backend/uploads
+/venv
+mentra-backend/mentra.db
+mentra-backend/test.db
+
+# root-level assets and sqlite dbs (avoid committing)
+uploads/
+photos/
+*.db
+*.db-shm
+*.db-wal
