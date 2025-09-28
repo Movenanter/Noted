@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import Any, Protocol, cast
 
 from fastapi import HTTPException, status
 from ..core.config import settings
 
 
 _gemini_client: Any = None
+
+
+class _SupportsGenerateContent(Protocol):
+    """Minimal protocol to satisfy type checking for Gemini model instances."""
+
+    def generate_content(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 def _ensure_clients():
@@ -53,7 +59,8 @@ def analyze_image(image_bytes: bytes, mime: str = "image/png", prompt: str | Non
         if not callable(gen_model_factory):
             raise HTTPException(status_code=500, detail={"detail": "Gemini client missing GenerativeModel", "code": "llm_import"})
         model_name = settings.MODEL or "gemini-1.5-pro"
-        model = gen_model_factory(model_name)
+        # Cast to protocol so Pylance recognizes generate_content
+        model = cast(_SupportsGenerateContent, gen_model_factory(model_name))
         b64 = base64.b64encode(image_bytes).decode("ascii")
         try:
             resp = model.generate_content(
