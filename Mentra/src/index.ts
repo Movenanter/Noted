@@ -129,10 +129,6 @@ class NotedApp extends AppServer {
       if (!this.isListening) {
         if (this.checkWakeWords(transcription.text)) {
           this.startListening(session)
-          // Auto-start a session when "hey noted" is detected
-          if (transcription.text.toLowerCase().includes("hey noted") || transcription.text.toLowerCase().includes("noted")) {
-            this.handleStartSession(session, "conversation")
-          }
           return // Don't process the wake word as a note
         }
         // Don't process anything else when not listening
@@ -206,6 +202,13 @@ class NotedApp extends AppServer {
     // Prevent duplicate processing of the same command
     if (this.lastProcessedCommand === lowerText) {
       return false
+    }
+    
+    // Check if it's a question first
+    if (this.isQuestion(text)) {
+      this.lastProcessedCommand = lowerText
+      this.handleQuestion(session, text)
+      return true
     }
     
     // Basic command processing - could be enhanced with external speech recognition
@@ -298,10 +301,10 @@ class NotedApp extends AppServer {
 
   private async welcomeUser(session: AppSession): Promise<void> {
     try {
-      await session.audio.speak("Welcome to Noted! Say 'hey noted' to start a session and begin listening. I'll automatically start recording when you speak.")
-      session.logger.info("Welcome message played")
+      await session.audio.speak("Welcome to Noted! Say 'hey noted' to start listening.")
       session.logger.info("Wake word detection active - waiting for 'hey noted'")
       session.logger.info("Controls: Main button short press = start, long press = stop, Camera button = photo")
+      session.logger.info("Question feature: Ask any question and get AI-powered answers")
     } catch (error) {
       session.logger.error(`Failed to play welcome message: ${String(error)}`)
     }
@@ -340,6 +343,55 @@ class NotedApp extends AppServer {
     if (fillerWords.some(filler => lowerText === filler)) return false
     
     return true
+  }
+
+  private isQuestion(text: string): boolean {
+    const lowerText = text.toLowerCase().trim()
+    
+    // Check for question words and patterns
+    const questionWords = [
+      'what', 'where', 'when', 'why', 'how', 'who', 'which', 'whose', 'whom',
+      'is', 'are', 'was', 'were', 'do', 'does', 'did', 'can', 'could', 'would', 'should',
+      'will', 'shall', 'may', 'might', 'have', 'has', 'had'
+    ]
+    
+    // Check if text starts with question words
+    const startsWithQuestion = questionWords.some(word => lowerText.startsWith(word + ' '))
+    
+    // Check if text ends with question mark (though transcription might not capture this)
+    const endsWithQuestionMark = lowerText.endsWith('?')
+    
+    // Check for question patterns like "what is", "how do", etc.
+    const questionPatterns = [
+      /^what\s+(is|are|was|were|do|does|did|can|could|would|should)/,
+      /^how\s+(do|does|did|can|could|would|should|is|are|was|were)/,
+      /^where\s+(is|are|was|were|do|does|did|can|could|would|should)/,
+      /^when\s+(is|are|was|were|do|does|did|can|could|would|should)/,
+      /^why\s+(is|are|was|were|do|does|did|can|could|would|should)/,
+      /^who\s+(is|are|was|were|do|does|did|can|could|would|should)/,
+      /^which\s+(is|are|was|were|do|does|did|can|could|would|should)/,
+      /^can\s+you/,
+      /^could\s+you/,
+      /^would\s+you/,
+      /^should\s+i/,
+      /^do\s+you\s+know/,
+      /^tell\s+me/,
+      /^explain/,
+      /^define/
+    ]
+    
+    const matchesPattern = questionPatterns.some(pattern => pattern.test(lowerText))
+    
+    // Also check for common question phrases
+    const questionPhrases = [
+      'what is the', 'what are the', 'how do i', 'how does', 'where is', 'where are',
+      'when is', 'when are', 'why is', 'why are', 'who is', 'who are',
+      'capital of', 'population of', 'size of', 'meaning of', 'definition of'
+    ]
+    
+    const containsQuestionPhrase = questionPhrases.some(phrase => lowerText.includes(phrase))
+    
+    return startsWithQuestion || endsWithQuestionMark || matchesPattern || containsQuestionPhrase
   }
 
   private async startListening(session: AppSession): Promise<void> {
@@ -383,6 +435,39 @@ class NotedApp extends AppServer {
     this.notes.push(content)
     
     // Removed the annoying "Note saved:" confirmation
+  }
+
+  private async handleQuestion(session: AppSession, question: string): Promise<void> {
+    try {
+      session.logger.info(`Question detected: ${question}`)
+      
+      // Let user know we're processing their question
+      await session.audio.speak("Let me answer that for you...")
+      
+      // Get answer from GPT
+      const answer = await this.getAnswerFromGPT(question, session)
+      
+      if (answer) {
+        // Speak the answer back to the user
+        await session.audio.speak(answer)
+        session.logger.info(`Question answered: ${answer}`)
+        
+        // Also add the Q&A to notes for reference
+        this.notes.push(`Q: ${question}`)
+        this.notes.push(`A: ${answer}`)
+      } else {
+        await session.audio.speak("I'm sorry, I couldn't process that question right now. Please try again.")
+        session.logger.warn(`Failed to get answer for question: ${question}`)
+      }
+      
+    } catch (error) {
+      session.logger.error(`Failed to handle question: ${String(error)}`)
+      try {
+        await session.audio.speak("I'm sorry, I encountered an error while processing your question.")
+      } catch (audioError) {
+        session.logger.warn(`Failed to speak error message: ${String(audioError)}`)
+      }
+    }
   }
 
   private async handleSummarize(session: AppSession): Promise<void> {
@@ -596,6 +681,7 @@ class NotedApp extends AppServer {
 Wake Words: "Hey noted", "Noted", "Start listening"
 Session Commands: "Start session", "Start lecture", "Start meeting", "End session"
 Voice Commands: "Mark this", "Summarize", "Analyze photo", "Toggle auto capture", "Help"
+Question Feature: Ask any question like "What's the capital of China?" and get AI-powered answers
 Stop Words: "Stop listening", "End session", "Goodbye noted"
 Button Controls: Camera short press (photo), Camera long press (stop), Main button (start/stop)
 Auto-Capture: Visual snapshots every 30 seconds during sessions
@@ -605,7 +691,7 @@ Note: Audio processing and transcription handled by external services`
     session.logger.info(`Help requested: ${helpText}`)
     
     try {
-      await session.audio.speak("Here are the available commands. Say 'hey noted' to start a session and begin listening. While in a session, you can say mark this, summarize, analyze photo, or help. Say stop listening to end. Audio will be recorded and processed automatically with AI transcription.")
+      await session.audio.speak("Here are the available commands. Say 'hey noted' to start listening. Say 'start session' to begin recording. While in a session, you can ask questions like 'what's the capital of China' and I'll answer them using AI. You can also say mark this, summarize, analyze photo, or help. Say stop listening to end. Audio will be recorded and processed automatically with AI transcription.")
     } catch (error) {
       session.logger.error(`Failed to speak help: ${String(error)}`)
     }
@@ -1180,6 +1266,55 @@ Note: Audio processing and transcription handled by external services`
       
     } catch (error) {
       session.logger.error(`Summary generation failed: ${String(error)}`)
+      return null
+    }
+  }
+
+  private async getAnswerFromGPT(question: string, session: AppSession): Promise<string | null> {
+    try {
+      if (!OPENAI_API_KEY) {
+        session.logger.warn("No OpenAI API key - cannot answer questions")
+        return null
+      }
+
+      session.logger.info(`Sending question to GPT: ${question}`)
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [{
+            role: 'system',
+            content: 'You are a helpful assistant that provides clear, concise answers to questions. Keep your responses brief and conversational since they will be spoken aloud. Focus on giving accurate, factual information.'
+          }, {
+            role: 'user',
+            content: question
+          }],
+          max_tokens: 200,
+          temperature: 0.7
+        })
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      const answer = result.choices[0]?.message?.content || null
+      
+      if (answer) {
+        session.logger.info(`GPT response received: ${answer.substring(0, 100)}...`)
+      }
+      
+      return answer
+      
+    } catch (error) {
+      session.logger.error(`Failed to get answer from GPT: ${String(error)}`)
       return null
     }
   }
