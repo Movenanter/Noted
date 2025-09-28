@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from .api.routes import router
 from .db.session import engine
 from .db.base import Base
-from .models import entities  # noqa: F401 - ensure models are registered
+from .models import entities as _entities  # noqa: F401 - ensure models are registered
 
 
 def create_app() -> FastAPI:
