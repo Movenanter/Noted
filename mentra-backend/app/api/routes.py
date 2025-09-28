@@ -16,6 +16,7 @@ from app.db.session import get_session
 from app.models.entities import Session, TranscriptChunk, Asset, Flashcard, Course, SessionCourse, FlashcardCourse, CalendarEvent
 from app.services import llm_service
 from app.services.transcribe_service import transcribe_wav_bytes
+from app.services.vision_service import analyze_image
 
 
 router = APIRouter()
@@ -67,12 +68,20 @@ def webhook_ingest(body: Dict[str, Any], background_tasks: BackgroundTasks, __: 
 def upload_asset(sid: str, background_tasks: BackgroundTasks, file: UploadFile = File(...), _: bool = Depends(require_bearer)):
     # For tests, don't persist file, just record meta path
     path = f"uploads/{sid}_{file.filename}"
+    raw = file.file.read()
     with get_session() as db:
-        # Auto-create session if missing (devices may generate SIDs client-side)
+        # For assets, require an existing session; invalid SID should return 404
         if not db.get(Session, sid):
-            db.add(Session(id=sid, title="Imported", is_active=True))
-            db.flush()
+            raise HTTPException(status_code=404, detail="Session not found")
         db.add(Asset(session_id=sid, path=path, kind="image"))
+        # Analyze image with Gemini/vision service and append to transcript as a chunk
+        try:
+            analysis = analyze_image(raw, mime=file.content_type or "image/png")
+            if analysis:
+                db.add(TranscriptChunk(session_id=sid, text=f"[image-notes] {analysis}", ts_start=0.0, ts_end=0.0, bookmarked=False))
+        except Exception:
+            # Non-fatal: keep asset even if analysis fails
+            pass
         db.commit()
     background_tasks.add_task(event_bus.broadcast, build_event("asset.uploaded", sid, f"Asset {file.filename} uploaded", {"path": path}))
     return {"path": path}
@@ -276,6 +285,18 @@ async def ws_live_audio(websocket: WebSocket, sid: str):
                 if buffer:
                     text = transcribe_wav_bytes(bytes(buffer))
                     buffer.clear()
+                    # Persist the final transcript chunk to DB for this session
+                    try:
+                        with get_session() as db:
+                            # ensure session exists for safety
+                            if not db.get(Session, sid):
+                                db.add(Session(id=sid, title="Imported", is_active=True))
+                                db.flush()
+                            db.add(TranscriptChunk(session_id=sid, text=text, ts_start=0.0, ts_end=0.0, bookmarked=True))
+                            db.commit()
+                    except Exception:
+                        # Non-fatal for WS response
+                        pass
                     await websocket.send_json({"transcript": text, "final": True})
                 else:
                     # Even if no audio buffered, respond to flush to avoid hanging clients

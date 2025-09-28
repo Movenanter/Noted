@@ -1,6 +1,7 @@
 import json
 from fastapi.testclient import TestClient
 from app.main import app
+from uuid import uuid4
 
 
 client = TestClient(app)
@@ -91,8 +92,9 @@ def test_courses_crud_and_assignment_and_linkage(monkeypatch):
 
 def test_class_assign_errors():
     # Missing both course_id and name
+    missing_sid = f"missing-{uuid4()}"
     r = client.post(
-        f"/sessions/does-not-exist/class:assign",
+        f"/sessions/{missing_sid}/class:assign",
         headers={"Authorization": "Bearer devsecret123"},
         json={"name": "X"},
     )
