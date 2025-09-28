@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from ..core.config import settings
+from .base import Base
 from contextlib import contextmanager
 
 
@@ -49,3 +50,14 @@ def get_session():
         yield db
     finally:
         db.close()
+
+
+# For tests/dev: ensure metadata tables exist early (idempotent)
+try:
+    # Import models so they are registered with Base.metadata
+    from app.models import entities as _entities  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+except Exception:
+    # During certain tooling/import orders this can run before app package is set up;
+    # the FastAPI startup in app.main will create tables as a fallback.
+    pass
