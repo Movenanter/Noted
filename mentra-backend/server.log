@@ -1,0 +1,12 @@
+INFO:     Started server process [95091]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8020 (Press CTRL+C to quit)
+INFO:     127.0.0.1:57189 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57206 - "POST /sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57207 - "POST /webhooks/mentra HTTP/1.1" 200 OK
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1759041399.325393 5055979 alts_credentials.cc:93] ALTS creds ignored. Not running on GCP and untrusted ALTS is not enabled.
+INFO:     127.0.0.1:57208 - "POST /sessions/630b4a7f-1ef0-4726-a793-510234a2a260/summary%3Agenerate-sync HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57212 - "POST /sessions/630b4a7f-1ef0-4726-a793-510234a2a260/flashcards%3Agenerate-sync HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57214 - "POST /sessions/630b4a7f-1ef0-4726-a793-510234a2a260/explain HTTP/1.1" 200 OK

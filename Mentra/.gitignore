@@ -40,9 +40,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 mentra-backend/mentra.db
 mentra-backend/test.db
 
-# root-level assets and sqlite dbs (avoid committing)
-uploads/
-photos/
-*.db
-*.db-shm
-*.db-wal
+# Python caches and compiled files
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
