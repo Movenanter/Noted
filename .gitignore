@@ -42,6 +42,3 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # root-level assets and sqlite dbs (avoid committing)
 uploads/
 photos/
-*.db
-*.db-shm
-*.db-wal
