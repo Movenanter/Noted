@@ -11,7 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from app.core.security import require_bearer, require_webhook
 from app.db.session import get_session
-from app.models.entities import Session, TranscriptChunk, Asset, Flashcard, QuizAttempt
+from app.models.entities import Session, TranscriptChunk, Asset, Flashcard
 from app.services import llm_service
 from app.services.transcribe_service import transcribe_wav_bytes
 
@@ -102,7 +102,7 @@ def flashcards_generate_sync(sid: str, body: Dict[str, Any], _: bool = Depends(r
 
 
 @router.get("/sessions/{sid}/flashcards")
-def list_flashcards(sid: str):
+def list_flashcards(sid: str, _: bool = Depends(require_bearer)):
     with get_session() as db:
         rows = db.query(Flashcard).filter(Flashcard.session_id == sid).all()
         # return simplified view
@@ -126,6 +126,8 @@ def explain_topic(sid: str, body: Dict[str, Any], _: bool = Depends(require_bear
 
 @router.post("/sessions/{sid}/quiz:start")
 def quiz_start(sid: str, _: bool = Depends(require_bearer)):
+    # Local import to avoid static analysis self-dependency warning in some IDEs
+    from app.models.entities import QuizAttempt
     with get_session() as db:
         cards = db.query(Flashcard).filter(Flashcard.session_id == sid).all()
         if not cards:
@@ -140,6 +142,8 @@ def quiz_start(sid: str, _: bool = Depends(require_bearer)):
 
 @router.post("/sessions/{sid}/quiz/submit")
 def quiz_submit(sid: str, body: Dict[str, Any], _: bool = Depends(require_bearer)):
+    # Local import to avoid static analysis self-dependency warning in some IDEs
+    from app.models.entities import QuizAttempt
     answers: Dict[str, Any] = body.get("answers", {})
     with get_session() as db:
         cards = db.query(Flashcard).filter(Flashcard.session_id == sid).all()
@@ -165,7 +169,7 @@ def quiz_submit(sid: str, body: Dict[str, Any], _: bool = Depends(require_bearer
 
 
 @router.get("/sessions/{sid}/timeline")
-def timeline(sid: str, q: str | None = None, tag: str | None = None, bookmarked: bool | None = None):
+def timeline(sid: str, q: str | None = None, tag: str | None = None, bookmarked: bool | None = None, _: bool = Depends(require_bearer)):
     with get_session() as db:
         chunks_q = db.query(TranscriptChunk).filter(TranscriptChunk.session_id == sid)
         if q:

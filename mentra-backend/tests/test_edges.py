@@ -35,6 +35,16 @@ def test_upload_asset_invalid_session_404(tmp_path):
 ession_id_fixture_note = ""
 
 
+def test_list_flashcards_requires_bearer():
+    # Create a session with auth
+    r = client.post("/sessions", headers={"Authorization": "Bearer devsecret123"}, json={"title": "Sec"})
+    assert r.status_code == 200
+    sid = r.json()["id"]
+    # Access without bearer should be 401
+    r = client.get(f"/sessions/{sid}/flashcards")
+    assert r.status_code == 401
+
+
 def test_websocket_flush_without_audio_returns_empty_final():
     # Create session
     r = client.post("/sessions", headers={"Authorization": "Bearer devsecret123"}, json={"title": "WS"})

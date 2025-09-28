@@ -139,7 +139,7 @@ def test_upload_asset_and_quiz_flow(tmp_path):
     assert r.status_code == 200
     cards = r.json()
     # List flashcards and ensure we get what was created
-    r = client.get(f"/sessions/{sid}/flashcards")
+    r = client.get(f"/sessions/{sid}/flashcards", headers={"Authorization": "Bearer devsecret123"})
     assert r.status_code == 200
     listed = r.json()
     assert isinstance(listed, list) and len(listed) >= 1
@@ -215,7 +215,7 @@ def test_timeline_and_bookmarks_and_summary(tmp_path):
     assert r.status_code == 200
 
     # Timeline full
-    r = client.get(f"/sessions/{sid}/timeline")
+    r = client.get(f"/sessions/{sid}/timeline", headers={"Authorization": "Bearer devsecret123"})
     assert r.status_code == 200
     data = r.json()
     assert "chunks" in data and "assets" in data
@@ -223,13 +223,13 @@ def test_timeline_and_bookmarks_and_summary(tmp_path):
     assert len(data["assets"]) == 1
 
     # Filter by query
-    r = client.get(f"/sessions/{sid}/timeline", params={"q": "Inertia"})
+    r = client.get(f"/sessions/{sid}/timeline", params={"q": "Inertia"}, headers={"Authorization": "Bearer devsecret123"})
     assert r.status_code == 200
     data_q = r.json()
     assert any("Inertia" in c["text"] for c in data_q["chunks"])  # at least one match
 
     # Filter bookmarked
-    r = client.get(f"/sessions/{sid}/timeline", params={"bookmarked": True})
+    r = client.get(f"/sessions/{sid}/timeline", params={"bookmarked": True}, headers={"Authorization": "Bearer devsecret123"})
     assert r.status_code == 200
     data_bm = r.json()
     assert all(c["bookmarked"] for c in data_bm["chunks"]) or len(data_bm["chunks"]) >= 1
