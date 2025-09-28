@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -26,6 +26,9 @@ import {
   Quote
 } from 'lucide-react';
 import { useMentraLiveNotes } from '../hooks/use-ai-generation';
+import Backend from '../services/backend';
+import { openNotifySocket } from '../services/notify';
+import { ENV } from '../config/env';
 
 // Enhanced interface to support visual context
 interface TimelineSection {
@@ -149,6 +152,12 @@ export function ConversationTimeline() {
   const [currentTime, setCurrentTime] = useState('00:00');
   const [searchQuery, setSearchQuery] = useState('');
   const [showVisualContext, setShowVisualContext] = useState(true);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [chunks, setChunks] = useState<{id:string;text:string;bookmarked:boolean}[]>([]);
+  const [assets, setAssets] = useState<{id:string;path:string}[]>([]);
+  const [chunkQuery, setChunkQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   // AI Integration Hooks
   const { 
@@ -223,6 +232,62 @@ export function ConversationTimeline() {
     section.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (section.keyQuote && section.keyQuote.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
+  // Ensure a session exists and load timeline from backend
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const existing = sessionStorage.getItem('noted.sid');
+        let sid = existing;
+        if (!sid) {
+          const created = await Backend.createSession('Web Timeline');
+          sid = created.id;
+          sessionStorage.setItem('noted.sid', sid);
+        }
+        if (!mounted) return;
+        setSessionId(sid!);
+        const tl = await Backend.getTimeline(sid!);
+        if (!mounted) return;
+        setChunks(tl.chunks);
+        setAssets(tl.assets || []);
+      } catch (e:any) {
+        setError(e.message || 'Failed to load timeline');
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Open notify WebSocket and refresh on relevant events
+  useEffect(() => {
+    const ws = openNotifySocket((e) => {
+      if (!sessionId) return;
+      // Update only on this session's events or global ones
+      if (e.session_id && e.session_id !== sessionId) return;
+      if (
+        e.event_type === 'chunk.saved' ||
+        e.event_type === 'transcript.saved' ||
+        e.event_type === 'asset.uploaded' ||
+        e.event_type === 'bookmark.added' ||
+        e.event_type === 'summary.generated' ||
+        e.event_type === 'flashcards.generated'
+      ) {
+        Backend.getTimeline(sessionId).then((tl) => {
+          setChunks(tl.chunks);
+          setAssets(tl.assets || []);
+        }).catch(() => {});
+      }
+    });
+    return () => {
+      try { ws.close(); } catch {}
+    };
+  }, [sessionId]);
 
   return (
     <div className="space-y-8">
@@ -509,7 +574,7 @@ export function ConversationTimeline() {
                       </div>
                       
                       <Button
-                        onClick={(e) => {
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                           e.stopPropagation();
                           jumpToSection(section.id, section.startTime);
                         }}
@@ -532,6 +597,83 @@ export function ConversationTimeline() {
           <p className="text-white/70">No timeline sections found matching "{searchQuery}"</p>
         </Card>
       )}
+
+      {/* Backend Timeline Chunks */}
+      <div className="space-y-4">
+        <h3 className="font-medium text-[24px] text-white">Backend Transcript Chunks</h3>
+        <Card className="bg-white/5 backdrop-blur-sm border border-white/10 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-white/70 text-sm">
+              Session: {sessionId ?? 'n/a'} · {chunks.length} chunks
+            </div>
+            <div className="relative w-80 max-w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Search transcript chunks..."
+                value={chunkQuery}
+                onChange={(e) => setChunkQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {loading && (
+            <div className="text-white/70 text-sm">Loading timeline…</div>
+          )}
+          {error && (
+            <div className="text-red-300 text-sm">{error}</div>
+          )}
+
+          {!loading && !error && (
+            <div className="space-y-3">
+              {chunks
+                .filter(c => c.text.toLowerCase().includes(chunkQuery.toLowerCase()))
+                .map((c) => (
+                  <div
+                    key={c.id}
+                    className="p-4 rounded-lg bg-white/10 border border-white/10"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className={c.bookmarked ? 'bg-green-500/20 text-green-300' : 'bg-white/10 text-white/70'}>
+                        {c.bookmarked ? 'bookmarked' : 'note'}
+                      </Badge>
+                      <span className="text-xs text-white/50">{c.id}</span>
+                    </div>
+                    <p className="text-white/80 whitespace-pre-wrap text-sm">{c.text}</p>
+                  </div>
+              ))}
+
+              {chunks.filter(c => c.text.toLowerCase().includes(chunkQuery.toLowerCase())).length === 0 && (
+                <div className="text-white/60 text-sm">No chunks match your search.</div>
+              )}
+
+              {assets.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="text-white font-medium mb-2 flex items-center gap-2">
+                    <Image className="w-4 h-4" /> Assets ({assets.length})
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {assets.map(a => (
+                      <div key={a.id} className="rounded-lg overflow-hidden bg-white/10 border border-white/10">
+                        <div className="aspect-video bg-white/5 flex items-center justify-center">
+                          {/* Simple preview: if path ends with image extension, attempt to render */}
+                          {/\.(png|jpg|jpeg|gif|webp)$/i.test(a.path) ? (
+                            <img src={a.path} alt={a.path} className="w-full h-full object-cover" />
+                          ) : (
+                            <FileText className="w-6 h-6 text-white/60" />
+                          )}
+                        </div>
+                        <div className="p-2 text-xs text-white/70 truncate" title={a.path}>{a.path}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }
