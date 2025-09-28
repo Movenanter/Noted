@@ -37,8 +37,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /mentra-backend/venv
 /mentra-backend/uploads
 /venv
-mentra-backend/mentra.db
-mentra-backend/test.db
+
 
 # root-level assets and sqlite dbs (avoid committing)
 uploads/
