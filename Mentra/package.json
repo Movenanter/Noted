@@ -5,7 +5,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "bun run dist/index.js",
-    "dev": "bun --watch src/index.ts"
+    "dev": "bun --watch src/index.ts",
+    "e2e": "bun --watch src/e2e.ts",
+    "test:e2e": "bun --watch src/glasses_backend.test.ts"
   },
   "dependencies": {
     "@mentra/sdk": "latest",

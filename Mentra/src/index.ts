@@ -86,6 +86,8 @@ class NotedApp extends AppServer {
   private bookmarkedMoments: Bookmark[] = []
   private isSessionActive = false
   private segmentStartTime: Date | null = null
+  // Backend session tracking
+  private backendSessionId: string | null = null
   
   // Auto-capture settings
   private autoCaptureInterval: NodeJS.Timeout | null = null
@@ -462,7 +464,7 @@ class NotedApp extends AppServer {
       else if (command.includes('meeting')) sessionType = 'meeting'
       else if (command.includes('interview')) sessionType = 'interview'
 
-      // Create new session
+      // Create new local session
       this.currentSession = {
         id: `session_${Date.now()}`,
         type: sessionType,
@@ -477,6 +479,15 @@ class NotedApp extends AppServer {
       this.sessionSegments = []
       this.sessionPhotos = []
       this.bookmarkedMoments = []
+
+      // Ensure a backend session exists and capture its ID for uploads
+      try {
+        const backendId = await this.ensureBackendSession(session, sessionType)
+        this.backendSessionId = backendId
+        session.logger.info(`Backend session established: ${backendId}`)
+      } catch (e) {
+        session.logger.warn(`Failed to pre-create backend session: ${String(e)}`)
+      }
 
       // Start auto-capture for visual snapshots
       this.startAutoCapture(session)
@@ -862,19 +873,18 @@ Note: Audio processing and transcription handled by external services`
   }
 
   // Backend integration methods
-  private async sendAudioToBackend(audioBuffer: Buffer, filename: string, session: AppSession): Promise<void> {
+  private async sendAudioToBackend(audioBuffer: Uint8Array, filename: string, session: AppSession): Promise<void> {
     try {
-      // Use current session ID or create a default one for standalone audio
-      const sessionId = this.currentSession?.isActive ? this.currentSession.id : `standalone_${Date.now()}`
-      
-      if (!this.currentSession?.isActive) {
-        session.logger.info("No active session - using standalone session ID for backend upload")
-      }
-      session.logger.info(`Sending audio to backend: ${filename} for session ${sessionId}`)
+      // Ensure backend session exists
+      const sessionId = await this.ensureBackendSession(session, this.currentSession?.type || 'conversation')
+      this.backendSessionId = sessionId
+      session.logger.info(`Sending audio to backend: ${filename} for backend session ${sessionId}`)
 
       // Create FormData for file upload
-      const formData = new FormData()
-      const blob = new Blob([audioBuffer], { type: 'audio/wav' })
+  const formData = new FormData()
+  const audioArray = audioBuffer instanceof Uint8Array ? audioBuffer : new Uint8Array(audioBuffer)
+  const audioSlice = (audioArray.buffer as ArrayBuffer).slice(audioArray.byteOffset, audioArray.byteOffset + audioArray.byteLength)
+  const blob = new Blob([audioSlice], { type: 'audio/wav' })
       formData.append('file', blob, filename)
       
       const response = await fetch(`${BACKEND_API_URL}/sessions/${sessionId}/transcribe`, {
@@ -907,12 +917,16 @@ Note: Audio processing and transcription handled by external services`
         return
       }
 
-      const sessionId = this.currentSession.id
-      session.logger.info(`Sending photo to backend: ${filename} for session ${sessionId}`)
+      const sessionId = await this.ensureBackendSession(session, this.currentSession.type)
+      this.backendSessionId = sessionId
+      session.logger.info(`Sending photo to backend: ${filename} for backend session ${sessionId}`)
 
       // Create FormData for file upload
-      const formData = new FormData()
-      const blob = new Blob([photo.buffer], { type: photo.mimeType })
+  const formData = new FormData()
+  // Convert Node Buffer to precise ArrayBuffer slice for Blob
+  const u8 = new Uint8Array(photo.buffer.buffer as ArrayBuffer, photo.buffer.byteOffset, photo.buffer.byteLength)
+  const slice = (u8.buffer as ArrayBuffer).slice(u8.byteOffset, u8.byteOffset + u8.byteLength)
+  const blob = new Blob([slice], { type: photo.mimeType })
       formData.append('file', blob, filename)
       
       const response = await fetch(`${BACKEND_API_URL}/sessions/${sessionId}/assets`, {
@@ -940,39 +954,36 @@ Note: Audio processing and transcription handled by external services`
 
   private async sendSessionToBackend(sessionData: SessionData, session: AppSession): Promise<void> {
     try {
-      session.logger.info(`Sending session data to backend: ${sessionData.id}`)
-
-      const response = await fetch(`${BACKEND_API_URL}/sessions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${BACKEND_API_TOKEN}`,
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-        body: JSON.stringify({
-          id: sessionData.id,
-          title: sessionData.type,
-          startTime: sessionData.startTime.toISOString(),
-          endTime: sessionData.endTime?.toISOString(),
-          isActive: sessionData.isActive,
-          segments: sessionData.segments.length,
-          photos: sessionData.photos.length,
-          bookmarks: sessionData.bookmarks.length
-        })
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`${response.status} ${response.statusText} - ${errorText}`)
-      }
-
-      const result = await response.json()
-      session.logger.info(`✅ Session data sent to backend successfully: ${sessionData.id}`)
-      session.logger.info(`Backend response: ${JSON.stringify(result)}`)
+      // Optionally notify backend; ensure session exists (idempotent)
+      const backendId = await this.ensureBackendSession(session, sessionData.type)
+      session.logger.info(`Session ended; backend session confirmed: ${backendId}`)
 
     } catch (error) {
       session.logger.error(`❌ Failed to send session data to backend: ${String(error)}`)
     }
+  }
+
+  // Ensure a backend session exists; returns backend session id
+  private async ensureBackendSession(session: AppSession, title: string): Promise<string> {
+    if (this.backendSessionId) return this.backendSessionId
+    session.logger.info(`Creating backend session for title: ${title}`)
+    const response = await fetch(`${BACKEND_API_URL}/sessions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${BACKEND_API_TOKEN}`,
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: JSON.stringify({ title })
+    })
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`${response.status} ${response.statusText} - ${errorText}`)
+    }
+    const result = await response.json()
+    const id = result?.id || `standalone_${Date.now()}`
+    this.backendSessionId = id
+    return id
   }
 }
 
