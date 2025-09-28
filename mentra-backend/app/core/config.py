@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str | None = Field(None, description="Preferred Gemini model name; overrides MODEL when set")
     REQUEST_TIMEOUT_SECONDS: int = Field(60, description="LLM request timeout in seconds")
     DEV_FAKE_LLM: bool = Field(False, description="If true, return deterministic fake flashcards without calling an LLM")
+    # AgentMail webhook signing secret
+    AGENTMAIL_WEBHOOK_SECRET: str | None = Field(None, description="HMAC secret for AgentMail inbound webhooks")
 
 
 settings = Settings()  # type: ignore

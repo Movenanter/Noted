@@ -134,3 +134,30 @@ class CalendarEvent(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tags_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+# ----------------------
+# AgentMail: Proposed items
+# ----------------------
+
+class ProposedCalendarItem(Base):
+    __tablename__ = "proposed_calendar_item"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Source metadata
+    source: Mapped[str] = mapped_column(String, nullable=False, default="email")  # email|nlp|other
+    message_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    proposer: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # gemini|heuristic
+    # Proposal fields
+    kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # meeting|homework
+    title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    duration_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    professor_email: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # store JSON as string for portability
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending", index=True)  # pending|accepted|rejected

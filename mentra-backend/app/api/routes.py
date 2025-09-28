@@ -68,10 +68,9 @@ def upload_asset(sid: str, background_tasks: BackgroundTasks, file: UploadFile =
     # For tests, don't persist file, just record meta path
     path = f"uploads/{sid}_{file.filename}"
     with get_session() as db:
-        # Auto-create session if missing (devices may generate SIDs client-side)
+        # For assets, require an existing session; invalid SID should return 404
         if not db.get(Session, sid):
-            db.add(Session(id=sid, title="Imported", is_active=True))
-            db.flush()
+            raise HTTPException(status_code=404, detail="Session not found")
         db.add(Asset(session_id=sid, path=path, kind="image"))
         db.commit()
     background_tasks.add_task(event_bus.broadcast, build_event("asset.uploaded", sid, f"Asset {file.filename} uploaded", {"path": path}))
